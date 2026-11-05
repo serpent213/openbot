@@ -92,7 +92,7 @@ def test_system_prompt_contents():
     # and required task info in its scratchpad, updating it as work proceeds. The pad's live content
     # is injected separately into the dynamic part (see test_the_scratchpad_goes_in_the_dynamic_prompt_only).
     assert (
-        "# Task scratchpad\nKeep track of your task progress here" in p
+        "# Task scratchpad\nIf the scratchpad tool is enabled" in p
         and "update it through the `scratchpad` tool as work proceeds" in p
     )
 
@@ -103,7 +103,7 @@ def test_scratchpad_instruction_lives_in_the_stable_template():
     from openbot.runtime import prompt as prompt_module
 
     stable_text = prompt_module.STABLE_SYSTEM_PROMPT_FILE.read_text(encoding="utf-8")
-    assert "# Task scratchpad\nKeep track of your task progress here" in stable_text
+    assert "# Task scratchpad\nIf the scratchpad tool is enabled" in stable_text
     assert "update it through the `scratchpad` tool as work proceeds" in stable_text
     # The dynamic template carries the live pad content, so it must not pre-state the instruction
     # (that would duplicate the stable section in every prompt).
