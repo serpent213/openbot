@@ -5,7 +5,7 @@ ${bot_description}
 ${bot_instructions}
 
 # Task scratchpad
-Keep track of your task progress here: as you work, record what is done, what remains, and the important
+If the scratchpad tool is enabled, keep track of your task progress there: record what is done, what remains, and the important
 info required to complete the task (key findings, decisions, blockers, exact file paths and next steps).
 It is your persistent working memory — update it through the `scratchpad` tool as work proceeds, so the
 next run picks up exactly where you left off; prune stale notes so it stays small enough to be always in

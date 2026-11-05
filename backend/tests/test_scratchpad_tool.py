@@ -231,8 +231,7 @@ async def test_the_next_run_sees_the_saved_pad(settings):
     assert "# Your scratchpad" in dynamic and "runner.py:624" in dynamic
 
 
-async def test_a_bot_without_the_tool_still_gets_its_saved_pad_injected(settings):
-    """Injection is per-bot, not gated on the tool list: losing the tool drops the tool, not the notes."""
+async def test_disabling_the_tool_excludes_saved_notes_without_deleting_them(settings):
     services, eng, t, run = await make(settings, {"eng": []}, tool_names=["run_shell"])
     async with services.session_factory() as s:
         s.add(BotScratchpad(actor_id=eng.id, content="kept notes"))
@@ -243,15 +242,13 @@ async def test_a_bot_without_the_tool_still_gets_its_saved_pad_injected(settings
             await s.get(Run, run.id),
         )
     prompt, _inputs, _hop = await services.runner._prepare(bot, thread, again)
-    assert (
-        "# Your scratchpad" in prompt.content[1]["text"]
-        and "kept notes" in prompt.content[1]["text"]
-    )
+    assert "# Your scratchpad" not in prompt.content[1]["text"]
+    assert "kept notes" not in prompt.content[1]["text"]
+    async with services.session_factory() as s:
+        assert await load_scratchpad(s, eng.id) == "kept notes"
 
 
-async def test_every_agent_carries_the_tool_even_when_the_profile_omits_it(services, monkeypatch):
-    """Bots whose saved tool list predates the scratchpad (or omits it) still get the tool: the runner
-    always resolves it, because its saved content is injected into every run's system prompt."""
+async def test_scratchpad_tool_respects_the_profiles_selection(services, monkeypatch):
     from openbot.runtime import runner as runner_mod
 
     captured = {}
@@ -264,7 +261,10 @@ async def test_every_agent_carries_the_tool_even_when_the_profile_omits_it(servi
     bot = bot_actor("old", tool_names=[])
     bot.id = "o1"
     services.runner._build_agent(bot, "system prompt")
-    assert "scratchpad" in [t.name for t in captured["tools"]]
+    assert "scratchpad" not in [t.name for t in captured["tools"]]
+    bot.bot.tool_names = ["scratchpad"]
+    services.runner._build_agent(bot, "system prompt")
+    assert [t.name for t in captured["tools"]].count("scratchpad") == 1
 
 
 async def test_boot_grants_the_scratchpad_to_existing_bots(services):

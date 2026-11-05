@@ -633,9 +633,12 @@ class Runner:
                 if "todo_write" in bot.bot.tool_names
                 else []
             )
-            # The bot's cross-thread working memory, injected at the start of every run. Loaded for
-            # every bot: one indexed lookup, and every bot gets the tool granted.
-            scratchpad = await load_scratchpad(session, bot.id)
+            # Removing the tool also excludes its cross-thread notes from this run.
+            scratchpad = (
+                await load_scratchpad(session, bot.id)
+                if "scratchpad" in bot.bot.tool_names
+                else None
+            )
         by_id = {a.id: a for a in all_actors}
         by_handle = {a.handle: a for a in all_actors}
         participants = [by_id[p.actor_id].name for p in parts if p.actor_id in by_id]
@@ -842,9 +845,6 @@ class Runner:
     def _build_agent(self, bot: Actor, system_prompt: str, triggers: tuple[int, int] | None = None):
         p = bot.bot
         tools = [
-            # The scratchpad's saved content is injected into every run's system prompt, so every
-            # agent carries the tool even when a profile or old row omits it from its tool list.
-            *self.s.registry.resolve(["scratchpad"]),
             *self.s.registry.resolve(list(p.tool_names)),
             *CORE_TOOLS,
             *SCHEDULING_TOOLS,
