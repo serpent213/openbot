@@ -55,6 +55,14 @@ def alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
+    if sys.platform == "linux":
+        # SIGKILL has finished its job even if the sandbox init has not reaped
+        # the orphan yet. kill(pid, 0) alone also reports zombies as alive.
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[0]
+        except FileNotFoundError:
+            return False
+        return state not in ("Z", "X")
     return True
 
 
