@@ -14,6 +14,7 @@ import BotEditorPage from "./pages/BotEditorPage";
 import BotPage from "./pages/BotPage";
 import SettingsPage from "./pages/SettingsPage";
 import ScheduledPage from "./pages/ScheduledPage";
+import BoardsPage from "./pages/BoardsPage";
 import DocumentTitle from "./components/DocumentTitle";
 import { Spinner } from "./components/ui";
 
@@ -58,6 +59,7 @@ function MainApp() {
             <Route path="/bots/:id" element={<BotPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/scheduled" element={<ScheduledPage />} />
+            <Route path="/boards" element={<BoardsPage />} />
           </Route>
         </Routes>
         </SetupGate>

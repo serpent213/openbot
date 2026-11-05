@@ -377,6 +377,42 @@ For how these pieces fit together inside the backend, see [docs/architecture.md]
 > `run_shell`. [Backend in Docker](#backend-in-docker) does the container part and keeps shell
 > commands away from the server's keys; sandboxing each tool call is still on the roadmap.
 
+## Shared project boards
+
+The **Boards** page tracks tasks shared by people and bots. Create a board for a
+project, add cards, and move them through Backlog, Ready, Doing, Review and Done.
+Blocked cards require a reason; Review and Done require a result. Cards can link
+to an existing discussion, and their descriptions/results accept Markdown links.
+
+Grant `board_list`, `card_list`, `card_get`, `card_create`, `card_claim` and
+`card_update` to bots that should work with boards. Claims are atomic; edits
+require the current `expected_version`, so a stale update cannot overwrite
+another actor's work. Every edit records its actor and changes. UI actions and
+tools use the same operations. The authenticated HTTP API is under `/api/v1/boards`;
+mutations also require `X-OpenBot-Actor`. This identifies the operator for history,
+not a separate permission boundary in OpenBot's single-operator trust model.
+
+Changing a card does not wake an agent or perform external work. Delegate through
+the existing messaging tools, passing the card ID. Domain-specific workflows
+belong in bot instructions and external tools; the board does not interpret their
+results or execute actions. External integrations can use the board API without
+writing to OpenBot's database.
+
+No additional runtime dependency is required for boards.
+
+## Local development with devenv
+
+An optional `devenv.nix` supplies Python, uv, Node and pnpm, with pinned inputs:
+
+```sh
+devenv shell
+uv sync --project backend --frozen
+pnpm --dir frontend install --frozen-lockfile --ignore-scripts
+uv run --project backend pytest
+pnpm --dir frontend test
+pnpm --dir frontend build
+```
+
 ## Tools and plugins
 
 Bots select from a registry of built-in tools (`run_shell`, `read_file`, `write_file`,

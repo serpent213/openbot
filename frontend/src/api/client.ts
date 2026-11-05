@@ -5,6 +5,7 @@ export interface ScheduledMessage { id: string; thread_id: string; content: stri
 
 export interface AttachmentIn { url: string; name?: string; }
 import { ApiError, backendUnavailableEvent, isBackendUnavailable } from "./errors";
+import type { Board, BoardCard, BoardCardEvent, BoardCardUpdate } from "./types";
 
 export { ApiError } from "./errors";
 
@@ -25,7 +26,7 @@ async function api<T>(path: string, init: RequestInit & { json?: unknown } = {})
   const headers: Record<string, string> = { Accept: "application/json" };
   const key = getApiKey();
   if (key) headers["X-API-Key"] = key;
-  if (path === "/scheduled" || path.startsWith("/scheduled/")) headers["X-OpenBot-Actor"] = getActorHandle();
+  if (path === "/scheduled" || path.startsWith("/scheduled/") || path === "/boards" || path.startsWith("/boards/")) headers["X-OpenBot-Actor"] = getActorHandle();
   let body: BodyInit | undefined;
   if (init.json !== undefined) { headers["Content-Type"] = "application/json"; body = JSON.stringify(init.json); }
   let r: Response;
@@ -37,6 +38,14 @@ async function api<T>(path: string, init: RequestInit & { json?: unknown } = {})
 }
 
 export const Api = {
+  listBoards: () => api<Board[]>("/boards"),
+  createBoard: (body: { name: string; description?: string }) => api<Board>("/boards", { method: "POST", json: body }),
+  listCards: (boardId: string) => api<BoardCard[]>(`/boards/${boardId}/cards`),
+  getCard: (id: string) => api<BoardCard>(`/boards/cards/${id}`),
+  cardHistory: (id: string) => api<BoardCardEvent[]>(`/boards/cards/${id}/history`),
+  createCard: (boardId: string, body: { title: string; description?: string; thread_id?: string | null }) => api<BoardCard>(`/boards/${boardId}/cards`, { method: "POST", json: body }),
+  updateCard: (id: string, body: BoardCardUpdate) => api<BoardCard>(`/boards/cards/${id}`, { method: "PATCH", json: body }),
+  claimCard: (id: string) => api<BoardCard>(`/boards/cards/${id}/claim`, { method: "POST" }),
   listBots: () => api<Bot[]>("/bots"),
   listBotCatalog: () => api<BotCatalogEntry[]>("/bots/catalog"),
   installBotCatalogEntry: ({ id, handle }: { id: string; handle?: string }) => api<Bot>(`/bots/catalog/${id}/install`, { method: "POST", json: handle ? { handle } : {} }),

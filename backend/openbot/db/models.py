@@ -76,6 +76,40 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class Board(TimestampMixin, Base):
+    __tablename__ = "boards"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+
+class BoardCard(TimestampMixin, Base):
+    __tablename__ = "board_cards"
+    __table_args__ = (Index("ix_board_cards_board_status", "board_id", "status"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    board_id: Mapped[str] = mapped_column(String(36), ForeignKey("boards.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="backlog", nullable=False)
+    assignee_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("actors.id", ondelete="SET NULL"))
+    thread_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("threads.id", ondelete="SET NULL"))
+    result: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    blocked_reason: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class BoardCardEvent(Base):
+    __tablename__ = "board_card_events"
+    __table_args__ = (UniqueConstraint("card_id", "version", name="uq_card_event_version"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    card_id: Mapped[str] = mapped_column(String(36), ForeignKey("board_cards.id"), nullable=False)
+    actor_handle: Mapped[str] = mapped_column(String(32), nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    changes: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+
 class Actor(TimestampMixin, Base):
     __tablename__ = "actors"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)

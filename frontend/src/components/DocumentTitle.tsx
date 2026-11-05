@@ -9,6 +9,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/bots/new": "New bot",
   "/settings": "Settings",
   "/scheduled": "Scheduled",
+  "/boards": "Boards",
   "/lab/openlings": "Openlings Lab",
   "/lab/office": "Living Office",
 };

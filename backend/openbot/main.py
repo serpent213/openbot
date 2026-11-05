@@ -12,7 +12,7 @@ import httpx
 from dotenv import find_dotenv, load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -29,6 +29,7 @@ from openbot.api import (
     threads,
     tools,
 )
+from openbot.api import boards as boards_api
 from openbot.api import mcp as mcp_api
 from openbot.api import models as models_api
 from openbot.api import settings as settings_api
@@ -36,6 +37,7 @@ from openbot.api import setup as setup_api
 from openbot.api import telegram as telegram_api
 from openbot.api import workspace as workspace_api
 from openbot.api.deps import require_api_key
+from openbot.boards import BoardError
 from openbot.config import Settings, get_settings
 from openbot.db.session import (
     create_all,
@@ -280,6 +282,10 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
                 await close_services(app.state.services)
 
     app = FastAPI(title="OpenBot", lifespan=lifespan)
+
+    @app.exception_handler(BoardError)
+    async def board_error_handler(_request, error: BoardError):
+        return JSONResponse(status_code=error.status, content={"detail": str(error)})
     app.state.settings = settings
     app.state.services = services
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"])
@@ -314,7 +320,7 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
     for r in (actors.router, bots.router, threads.router, messages.router, inbox.router, runs.router, tools.router,
               providers.router, models_api.router, events.router, settings_api.router, mcp_api.router, setup_api.router,
-              workspace_api.router, activity_api.router, scheduled.router):
+              workspace_api.router, activity_api.router, scheduled.router, boards_api.router):
         api.include_router(r)
     app.include_router(public)
     app.include_router(api)

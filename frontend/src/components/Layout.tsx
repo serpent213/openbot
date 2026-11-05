@@ -66,6 +66,7 @@ const NAV = [
   { to: "/inbox", label: "Inbox", Icon: InboxIcon, end: false },
   { to: "/threads", label: "Threads", Icon: ThreadsIcon, end: true },
   { to: "/bots", label: "Bots", Icon: BotsIcon, end: true },
+  { to: "/boards", label: "Boards", Icon: ThreadsIcon, end: true },
   { to: "/settings", label: "Settings", Icon: SettingsIcon, end: false },
   { to: "/scheduled", label: "Scheduled", Icon: ThreadsIcon, end: true },
 ] as const;

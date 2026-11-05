@@ -408,6 +408,12 @@ def test_selectable_names():
         "todo_write",
         "scratchpad",
         "load_skill",
+        "board_list",
+        "card_list",
+        "card_get",
+        "card_create",
+        "card_claim",
+        "card_update",
     ]
 
 
