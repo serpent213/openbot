@@ -68,7 +68,7 @@ it("keeps the edited version after remote updates and lets the user explicitly r
   fake.api.updateCard = vi.fn(async () => { throw new Error("card changed; reload it before retrying"); });
   await act(async () => button("Save card").click());
   await until(() => text().includes("card changed"));
-  expect(fake.api.updateCard.mock.calls[0][1].expected_version).toBe(2);
+  expect(vi.mocked(fake.api.updateCard).mock.calls[0][1].expected_version).toBe(2);
   await act(async () => button("Reload card (discard edits)").click());
   await until(() => (el.querySelector('input') as HTMLInputElement).value === "Updated elsewhere");
 });
