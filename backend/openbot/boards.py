@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic.json_schema import SkipJsonSchema
 from sqlalchemy import select, update
 
 from openbot.db.models import Actor, Board, BoardCard, BoardCardEvent, Thread, utcnow
@@ -38,13 +39,13 @@ class CardCreate(BaseModel):
 class CardUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     expected_version: int = Field(ge=1)
-    title: str | None = Field(default=None, min_length=1, max_length=200)
-    description: str | None = Field(default=None, max_length=20_000)
-    status: CardStatus | None = None
+    title: str | SkipJsonSchema[None] = Field(default=None, min_length=1, max_length=200)
+    description: str | SkipJsonSchema[None] = Field(default=None, max_length=20_000)
+    status: CardStatus | SkipJsonSchema[None] = None
     assignee_handle: str | None = Field(default=None, max_length=32)
     thread_id: str | None = None
-    result: str | None = Field(default=None, max_length=40_000)
-    blocked_reason: str | None = Field(default=None, max_length=2_000)
+    result: str | SkipJsonSchema[None] = Field(default=None, max_length=40_000)
+    blocked_reason: str | SkipJsonSchema[None] = Field(default=None, max_length=2_000)
 
     @field_validator("title", "description", "status", "result", "blocked_reason", mode="before")
     @classmethod

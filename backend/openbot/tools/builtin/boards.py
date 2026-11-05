@@ -78,7 +78,9 @@ async def card_update(card_id: str, changes: boards.CardUpdate,
     """Edit a card using its expected_version from card_get. Omit unchanged fields.
     Set assignee_handle to assign/handoff, or null to release. Statuses: backlog,
     ready, doing, review, done, blocked. Review/done need a result; blocked needs
-    blocked_reason. Updates never wake bots: send a message separately to delegate.
+    blocked_reason. Only assignee_handle and thread_id accept null. Clear text
+    with an empty string; leaving blocked status clears blocked_reason automatically.
+    Updates never wake bots: send a message separately to delegate.
     """
     ctx = runtime.context
     async with ctx.services.session_factory() as session:

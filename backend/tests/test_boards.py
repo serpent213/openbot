@@ -91,6 +91,15 @@ async def test_validation_and_blocked_recovery(client):
     assert card["blocked_reason"] == ""
 
 
+def test_update_tool_schema_only_advertises_supported_nulls():
+    schema = card_update.tool_call_schema.model_json_schema()["$defs"]["CardUpdate"]
+    for field in ("title", "description", "status", "result", "blocked_reason"):
+        assert schema["properties"][field]["type"] == "string"
+        assert field not in schema["required"]
+    for field in ("assignee_handle", "thread_id"):
+        assert {"type": "null"} in schema["properties"][field]["anyOf"]
+
+
 async def test_api_key_and_explicit_actor(client, settings):
     settings.openbot_api_key = "test-private-key"
     assert (await client.get("/api/v1/boards")).status_code == 401
