@@ -4,19 +4,25 @@ import importlib
 import re
 from contextlib import AsyncExitStack
 
-from openbot.plugin_api import Plugin, PluginHost
+from openbot.plugin_api import API_VERSION, Plugin, PluginHost
+from openbot.runtime.plugin_settings import SettingsStore
 
 
 def load_plugins(modules):
     found = {}
     for module in modules:
         plugin = importlib.import_module(module).plugin
-        if not isinstance(plugin, Plugin) or plugin.api_version != 1:
+        if (not isinstance(plugin, Plugin) or not isinstance(plugin.api_version, tuple)
+                or len(plugin.api_version) != 2 or plugin.api_version[0] != API_VERSION[0]
+                or not 0 <= plugin.api_version[1] <= API_VERSION[1]):
             raise ValueError(f"{module}: incompatible plugin API (expected 1)")
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", plugin.id):
             raise ValueError(f"invalid plugin ID: {plugin.id}")
         if plugin.id in found:
             raise ValueError(f"duplicate plugin ID: {plugin.id}")
+        if plugin.router and not (plugin.router.prefix == "/" + plugin.id
+                                  or plugin.router.prefix.startswith("/" + plugin.id + "/")):
+            raise ValueError(f"plugin {plugin.id}: routes must use /{plugin.id} prefix")
         found[plugin.id] = plugin
     ordered = []
     while found:
@@ -29,21 +35,28 @@ def load_plugins(modules):
     return ordered
 
 
+def configured_plugins(services):
+    if services.plugins is None:
+        services.plugins = load_plugins(services.settings.plugin_modules)
+    return services.plugins
+
+
 async def start_plugins(services):
     if services.plugin_stack is not None:
         return
     stack = AsyncExitStack()
     try:
-        for plugin in load_plugins(services.settings.plugin_modules):
+        for plugin in configured_plugins(services):
             path = (services.settings.plugin_state_dir / plugin.id).resolve()
             path.mkdir(parents=True, exist_ok=True)
             host = PluginHost(
-                plugin.id,
-                services.settings.database_url,
-                services.session_factory,
-                path,
-                services.settings.plugin_config.get(plugin.id, {}),
-                services.bus.publish,
+                id=plugin.id,
+                engine=services.session_factory.kw["bind"],
+                session_factory=services.session_factory,
+                state_dir=path,
+                config=services.settings.plugin_config.get(plugin.id, {}),
+                _publish=services.bus.publish,
+                settings=SettingsStore(services, plugin),
             )
             services.plugin_hosts[plugin.id] = host
             if plugin.migrations:

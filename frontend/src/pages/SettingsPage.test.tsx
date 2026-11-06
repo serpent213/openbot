@@ -30,6 +30,7 @@ function saveButtonFor(node: Element): HTMLButtonElement {
 }
 
 beforeEach(() => {
+  vi.spyOn(Api, "listPlugins").mockResolvedValue([]);
   qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   vi.spyOn(Api, "getSettings").mockResolvedValue(settings);
   vi.spyOn(Api, "getProviders").mockResolvedValue({ providers: [], embedding_model: "none", embeddings_configured: false });

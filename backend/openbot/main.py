@@ -32,6 +32,7 @@ from openbot.api import (
 )
 from openbot.api import mcp as mcp_api
 from openbot.api import models as models_api
+from openbot.api import plugin_settings as plugin_settings_api
 from openbot.api import settings as settings_api
 from openbot.api import setup as setup_api
 from openbot.api import telegram as telegram_api
@@ -47,7 +48,7 @@ from openbot.db.session import (
 )
 from openbot.logsetup import configure_logging
 from openbot.mcp import build_mcp_manager
-from openbot.plugins import load_plugins, start_plugins, stop_plugins
+from openbot.plugins import configured_plugins, load_plugins, start_plugins, stop_plugins
 from openbot.runtime import activity, app_settings
 from openbot.runtime.actors import ActorSystem
 from openbot.runtime.bus import EventBus
@@ -71,7 +72,7 @@ from openbot.tools.registry import build_registry
 log = logging.getLogger(__name__)
 
 
-async def build_services(settings: Settings) -> Services:
+async def build_services(settings: Settings, plugins=None) -> Services:
     ensure_sqlite_parent(settings.database_url)
     if ":memory:" in settings.database_url:
         engine = make_engine(settings.database_url)
@@ -81,7 +82,8 @@ async def build_services(settings: Settings) -> Services:
         engine = make_engine(settings.database_url)
     services = Services(settings=settings, session_factory=make_session_factory(engine))
     stack = AsyncExitStack()
-    services.registry = build_registry(settings)
+    services.plugins = load_plugins(settings.plugin_modules) if plugins is None else plugins
+    services.registry = build_registry(settings, services.plugins)
     services.bus = EventBus()
     services.secrets = SecretBox(lambda: resolve_secret_key(settings))
     # Stored settings first: the embedding model and the provider keys it needs may live only in the
@@ -265,14 +267,15 @@ class SpaStaticFiles(StaticFiles):
 
 def create_app(settings: Settings | None = None, services: Services | None = None) -> FastAPI:
     load_dotenv(find_dotenv(usecwd=True))
-    settings = settings or get_settings()
+    settings = services.settings if services is not None else (settings or get_settings())
+    plugins = configured_plugins(services) if services is not None else load_plugins(settings.plugin_modules)
     configure_logging(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         owned = app.state.services is None
         if owned:
-            app.state.services = await build_services(settings)
+            app.state.services = await build_services(settings, plugins)
         unregister_bus = close_buses_on_uvicorn_exit(app.state.services.bus)
         try:
             await start_background(app.state.services)
@@ -319,13 +322,17 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
 <body style="font-family:system-ui;padding:2rem"><p>{outcome}</p><p><a href="/settings">Back to Settings</a></p></body></html>""")
 
     api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
-    for r in (actors.router, bots.router, threads.router, messages.router, inbox.router, runs.router, tools.router,
+    core_routers = (actors.router, bots.router, threads.router, messages.router, inbox.router, runs.router, tools.router,
               providers.router, models_api.router, events.router, settings_api.router, mcp_api.router, setup_api.router,
-              workspace_api.router, activity_api.router, scheduled.router):
+              workspace_api.router, activity_api.router, scheduled.router, plugin_settings_api.router)
+    for r in core_routers:
         api.include_router(r)
+    reserved = {r.prefix.split("/")[1] for r in core_routers if r.prefix} | {"plugins", "health", "channels"}
     occupied = {(route.path, method) for route in api.routes for method in getattr(route, "methods", [])}
-    for plugin in load_plugins(settings.plugin_modules):
+    for plugin in plugins:
         if plugin.router is not None:
+            if plugin.id in reserved:
+                raise ValueError(f"plugin {plugin.id}: route prefix reserved by core")
             for route in plugin.router.routes:
                 for method in getattr(route, "methods", []):
                     key = ("/api/v1" + route.path, method)

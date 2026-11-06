@@ -10,6 +10,8 @@ import { formatArgs, formatKeyValues, mcpActions, mcpInFlight, mcpStatusBadge, p
 import { ChevronDownIcon, ChevronRightIcon } from "../components/icons";
 import { groupState, groupTools, setGroup, toolLabel } from "../lib/toolGroups";
 
+import PluginSettings from "../components/PluginSettings";
+
 const emptyExt = { handle: "", name: "", webhook_url: "", webhook_secret: "" };
 const Code = ({ children }: { children: React.ReactNode }) => <code className="rounded-ui border border-line bg-sunken px-1 text-[11px]">{children}</code>;
 
@@ -33,6 +35,7 @@ export default function SettingsPage() {
       <PageTitle>Settings</PageTitle>
 
       <RuntimeSettings />
+      <PluginSettings />
 
       <DatabaseLocationCard />
 

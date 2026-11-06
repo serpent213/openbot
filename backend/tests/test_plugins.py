@@ -71,6 +71,7 @@ async def test_lifecycle_closes_in_reverse_order_and_on_failure(monkeypatch, ser
 
     bad = install(monkeypatch, "bad", lifespan=broken, requires=("first",))
     services.settings.plugin_modules = [a, bad]
+    services.plugins = None
     with pytest.raises(RuntimeError, match="broken"):
         await start_plugins(services)
     assert events[-2:] == ["start first", "stop first"]
@@ -95,7 +96,8 @@ async def test_plugin_routes_inherit_auth_and_reject_collisions(monkeypatch, ser
         }
     other = install(monkeypatch, "other", router=router)
     services.settings.plugin_modules.append(other)
-    with pytest.raises(ValueError, match="duplicate route"):
+    services.plugins = None
+    with pytest.raises(ValueError, match="prefix"):
         create_app(services.settings, services)
 
 
@@ -124,3 +126,27 @@ async def test_plugins_close_if_later_startup_fails(monkeypatch, services, tmp_p
             pass
     assert closed == ["example"]
     assert services.plugin_hosts == {}
+
+
+async def test_plugin_context_events_and_single_manifest(monkeypatch, services, tmp_path):
+    from openbot.plugin_api import ToolContext, tool_context
+
+    module = install(monkeypatch, "example", api_version=(1, 0))
+    services.settings.plugin_modules = [module]
+    services.settings.plugin_state_dir = tmp_path
+    # Services are authoritative even if create_app is passed different settings.
+    app = create_app(Settings(_env_file=None), services)
+    assert app.state.settings is services.settings
+    monkeypatch.delitem(sys.modules, module)
+    await start_plugins(services)  # Uses the manifest already loaded by create_app.
+    host = services.plugin_hosts["example"]
+    await host.publish("example.updated", None, {})
+    with pytest.raises(ValueError, match="prefix"):
+        await host.publish("other.updated\nevent: forged", None, {})
+    ctx = tool_context(SimpleNamespace(context=SimpleNamespace(
+        actor_id="a", actor_handle="agent", thread_id="t", run_id="r", services=services)))
+    assert isinstance(ctx, ToolContext) and not hasattr(ctx, "services")
+    await stop_plugins(services)
+    future = install(monkeypatch, "future", api_version=(1, 99))
+    with pytest.raises(ValueError, match="incompatible"):
+        load_plugins([future])

@@ -89,7 +89,7 @@ class ToolRegistry:
             log.info("loaded %d tools from %s", found, path)
 
 
-def build_registry(settings) -> ToolRegistry:
+def build_registry(settings, plugins=None) -> ToolRegistry:
     from openbot.tools.builtin import SELECTABLE_TOOLS
 
     reg = ToolRegistry()
@@ -97,7 +97,7 @@ def build_registry(settings) -> ToolRegistry:
         reg.register(t)
     reg.load_plugins(Path(settings.tools_dir))
     from openbot.plugins import load_plugins
-    for plugin in load_plugins(settings.plugin_modules):
+    for plugin in (load_plugins(settings.plugin_modules) if plugins is None else plugins):
         for tool in plugin.tools:
             if reg.has(tool.name):
                 raise ValueError(f"plugin {plugin.id}: duplicate tool {tool.name}")

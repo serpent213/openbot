@@ -311,3 +311,16 @@ class ModelCatalogRow(Base):
     provider: Mapped[str] = mapped_column(String(32), primary_key=True)
     models: Mapped[list] = mapped_column(JSON, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+
+
+class PluginSetting(Base):
+    """One versioned document per plugin/scope/subject. Empty subject denotes global."""
+    __tablename__ = "plugin_settings"
+    plugin_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(16), primary_key=True)
+    subject: Mapped[str] = mapped_column(String(36), primary_key=True)
+    actor_id: Mapped[str | None] = mapped_column(ForeignKey("actors.id", ondelete="CASCADE"))
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    value: Mapped[dict] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)

@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 export interface FrontendPlugin {
   id: string;
-  apiVersion: 1;
+  apiVersion: readonly [number, number];
   pages?: { path: string; title: string; component: ComponentType }[];
   events?: string[];
 }

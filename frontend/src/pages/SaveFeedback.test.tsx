@@ -52,6 +52,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 beforeEach(() => {
+  vi.spyOn(Api, "listPlugins").mockResolvedValue([]);
   dismissSaveNotification(); localStorage.clear();
   qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
   qc.setQueryData(["settings"], [row]);

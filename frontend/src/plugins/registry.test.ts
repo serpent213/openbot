@@ -3,7 +3,7 @@ import { validatePlugins } from "./registry";
 import type { FrontendPlugin } from "./types";
 vi.mock("virtual:openbot-plugins", () => ({ default: [] }));
 const page = { path: "/example", title: "Example", component: () => null };
-const plugin: FrontendPlugin = { id: "example", apiVersion: 1, pages: [page] };
+const plugin: FrontendPlugin = { id: "example", apiVersion: [1, 1], pages: [page] };
 describe("UI plugin registry", () => {
   it("accepts explicitly compiled pages", () => {
     expect(validatePlugins([plugin])).toEqual([plugin]);

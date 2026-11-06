@@ -51,6 +51,7 @@ async function show(path: string) {
   ));
 }
 beforeEach(() => {
+  vi.spyOn(Api, "listPlugins").mockResolvedValue([]);
   qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   vi.spyOn(Api, "getProviders").mockResolvedValue({ providers: [], embedding_model: "none", embeddings_configured: false });
   vi.spyOn(Api, "listTools").mockResolvedValue({ tools: [], errors: [] });

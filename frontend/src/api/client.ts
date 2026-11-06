@@ -37,6 +37,7 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown;
 }
 
 export const Api = {
+  listPlugins: () => api<{ id: string; version: string; settings_scopes: string[] }[]>("/plugins"),
   listBots: () => api<Bot[]>("/bots"),
   listBotCatalog: () => api<BotCatalogEntry[]>("/bots/catalog"),
   installBotCatalogEntry: ({ id, handle }: { id: string; handle?: string }) => api<Bot>(`/bots/catalog/${id}/install`, { method: "POST", json: handle ? { handle } : {} }),

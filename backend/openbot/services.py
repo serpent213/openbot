@@ -14,6 +14,7 @@ from openbot.config import Settings
 class Services:
     settings: Settings
     session_factory: async_sessionmaker[AsyncSession]
+    plugins: list | None = None
     plugin_hosts: dict = field(default_factory=dict)
     plugin_stack: Any = None
     registry: Any = None       # ToolRegistry

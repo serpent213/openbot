@@ -6,29 +6,37 @@ defines compatibility and lifecycle, not a sandbox. Events are notifications.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from alembic import command, context
 from alembic.config import Config
 from fastapi import APIRouter, Request
 from langchain_core.tools import BaseTool
+from pydantic import BaseModel
 from sqlalchemy import Column, String, Table, select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
 from openbot.db.models import Actor, Thread, TimestampMixin, UTCDateTime, new_id, utcnow
-from openbot.tools.context import RunContext
+
+if TYPE_CHECKING:
+    from openbot.runtime.plugin_settings import SettingsStore
+
+API_VERSION = (1, 1)
 
 __all__ = [
+    "API_VERSION",
     "ActorRef",
     "ModelBase",
     "Plugin",
     "PluginHost",
-    "RunContext",
+    "PluginSettings",
     "TimestampMixin",
+    "ToolContext",
     "UTCDateTime",
     "find_actor",
     "host_from_request",
@@ -36,6 +44,7 @@ __all__ = [
     "migration_environment",
     "new_id",
     "thread_exists",
+    "tool_context",
     "utcnow",
 ]
 
@@ -49,34 +58,71 @@ Table("actors", ModelBase.metadata, Column("id", String(36), primary_key=True))
 Table("threads", ModelBase.metadata, Column("id", String(36), primary_key=True))
 
 
+@dataclass(frozen=True, kw_only=True)
+class PluginSettings:
+    global_: type[BaseModel] | None = None
+    agent: type[BaseModel] | None = None
+    version: int = 1
+    migrate: Callable[[str, int, dict], dict] | None = None
+
+
 @dataclass(frozen=True)
+class ToolContext:
+    actor_id: str
+    actor_handle: str
+    thread_id: str
+    run_id: str
+
+
+def tool_context(runtime) -> ToolContext:
+    ctx = runtime.context
+    return ToolContext(ctx.actor_id, ctx.actor_handle, ctx.thread_id, ctx.run_id)
+
+
+@dataclass(frozen=True, kw_only=True)
 class Plugin:
     id: str
-    api_version: int = 1
+    api_version: tuple[int, int] = API_VERSION
+    version: str = "0.1.0"
+    settings: PluginSettings | None = None
     requires: tuple[str, ...] = ()
     tools: tuple[BaseTool, ...] = ()
     router: APIRouter | None = None
     migrations: Path | None = None
-    lifespan: Callable | None = None  # async context manager receiving PluginHost
+    lifespan: Callable[[PluginHost], AbstractAsyncContextManager[None]] | None = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PluginHost:
     id: str
-    database_url: str
+    engine: AsyncEngine
     session_factory: async_sessionmaker
     state_dir: Path
-    config: dict
-    publish: Callable  # (event, thread_id, data); best-effort UI notification only
+    config: dict[str, Any]
+    _publish: Callable[[str, str | None, dict], Awaitable[None]]
+    settings: SettingsStore | None = None
     state: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def dialect(self) -> str:
+        return self.engine.dialect.name
+
+    @property
+    def database_name(self) -> str:
+        return self.engine.url.database or ""
+
+    async def publish(self, event: str, thread_id: str | None, data: dict) -> None:
+        import re
+        if not re.fullmatch(re.escape(self.id) + r"\.[a-z0-9_.]+", event):
+            raise ValueError("plugin events must use the plugin ID prefix")
+        await self._publish(event, thread_id, data)
 
     async def migrate(self, directory: Path, revision: str = "head") -> None:
         cfg = Config()
         cfg.set_main_option("script_location", str(directory))
-        cfg.set_main_option("sqlalchemy.url", self.database_url.replace("%", "%%"))
         cfg.set_main_option("version_table", f"plugin_{self.id}_version")
         # Share the application engine, including its in-memory SQLite connection.
-        async with self.session_factory.kw["bind"].begin() as connection:
+        async with self.engine.begin() as connection:
 
             def upgrade(sync_connection):
                 cfg.attributes["connection"] = sync_connection

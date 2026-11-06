@@ -12,6 +12,8 @@ import { supportsWebSearch } from "../lib/webSearch";
 import { ModelPicker } from "../components/ModelPicker";
 import { effortLevelsFor, hasCatalog, reconcileEffort, splitAutoDefault } from "../lib/modelCatalog";
 
+import PluginSettings from "../components/PluginSettings";
+
 function ToolRow({ name, label, description, on, approval, onToggle, onToggleApproval }:
   { name: string; label: string; description: string; on: boolean; approval: boolean; onToggle: () => void; onToggleApproval: () => void }) {
   return (
@@ -309,6 +311,7 @@ export default function BotEditorPage() {
           </Card>
         </>
       )}
+      {!isNew && <PluginSettings actorId={id} />}
       <ErrorText error={save.error ?? remove.error} />
       <div className="flex gap-2">
         <Button type="submit" disabled={save.isPending}>{isNew ? "Create bot" : "Save"}</Button>
