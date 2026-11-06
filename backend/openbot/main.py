@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.engine import make_url
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from openbot.api import activity as activity_api
@@ -114,7 +115,7 @@ def _log_startup(settings: Settings, services: Services) -> None:
     log.info("startup: cwd=%s dotenv=%s workspace_root=%s (WORKSPACE_ROOT=%s) tools_dir=%s database_url=%s "
              "bot_model=%s frontend_dist=%s log_file=%s log_level=%s tools=%d",
              os.getcwd(), dotenv or "<none>", Path(settings.workspace_root).resolve(), settings.workspace_root,
-             Path(settings.tools_dir).resolve(), settings.database_url, settings.bot_model or settings.openrouter_model or "<default>",
+             Path(settings.tools_dir).resolve(), make_url(settings.database_url).render_as_string(hide_password=True), settings.bot_model or settings.openrouter_model or "<default>",
              settings.frontend_dist, Path(settings.log_file).resolve(), settings.log_level,
              len(services.registry.specs()) if services.registry is not None else 0)
 

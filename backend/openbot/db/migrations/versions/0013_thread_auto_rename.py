@@ -17,7 +17,8 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.add_column("threads", sa.Column("auto_renamed", sa.Boolean(), nullable=False, server_default=sa.false()))
     # Only threads created after this feature was deployed are eligible.
-    op.execute("UPDATE threads SET auto_renamed = 1")
+    op.execute(sa.table("threads", sa.column("auto_renamed", sa.Boolean())).update()
+               .values(auto_renamed=True))
 
 
 def downgrade() -> None:

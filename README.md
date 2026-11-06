@@ -639,7 +639,7 @@ as `model_settings.reasoning_effort`). It applies to OpenAI, xAI, OpenRouter and
 
 | Variable | Default | Notes |
 |---|---|---|
-| `DATABASE_URL` | `sqlite+aiosqlite:///./.openbot/openbot.db` | Any SQLAlchemy async URL. `postgresql+asyncpg://...` is supported by the same schema and Alembic migrations, but is untested in v1. |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./.openbot/openbot.db` | SQLite or `postgresql+psycopg://...`; both use SQLAlchemy async and Alembic migrations. |
 | `SECRET_KEY` | *(unset)* | Fernet key protecting every secret stored in the database (provider keys, MCP headers/env, OAuth tokens). Unset: generated once into `SECRET_KEY_FILE`. `MCP_TOKEN_KEY` is accepted as an older name. |
 | `SECRET_KEY_FILE` | `./secret.key` | Where the generated key lives (owner-only permissions). With a root directory it defaults to `<root>/.openbot/secret.key`, and in the desktop app to `<data>/secret.key`, next to the database. An existing `mcp_token.key` is picked up. |
 | `OPENBOT_API_KEY` | *(unset)* | When set, every API route except `/health` and the MCP OAuth callback requires header `X-API-Key: <value>`. |
@@ -693,11 +693,26 @@ name, if set, is the default the page shows and the value a reset returns to.
 
 ## Database
 
-SQLite (`DATABASE_URL=sqlite+aiosqlite:///./.openbot/openbot.db`) is the default and what the test suite
-and demo walkthrough use. All application code goes through SQLAlchemy 2 async and Alembic, with
-no SQLite-only SQL, so a `postgresql+asyncpg://...` URL should work as a drop-in replacement —
-this path is untested in v1 but is the intended upgrade route. Alembic migrations run
-automatically at startup against any non-`:memory:` database; nothing to run by hand.
+SQLite (`DATABASE_URL=sqlite+aiosqlite:///./.openbot/openbot.db`) is the default.
+PostgreSQL uses `DATABASE_URL=postgresql+psycopg://user:password@localhost/openbot`;
+the Psycopg driver is included and shared with LangGraph. Install the `pgvector`
+server extension when using semantic memory. Alembic application migrations and
+LangGraph persistence setup run automatically at startup. Changing the URL selects
+a different database; it does not transfer existing data.
+
+Local PostgreSQL development (PostgreSQL 17 with pgvector, loopback port 15432):
+
+```sh
+devenv up postgres
+# In another terminal; the test role needs CREATEDB permission.
+devenv shell -- bash -c 'cd backend && OPENBOT_TEST_POSTGRES_URL=postgresql://127.0.0.1:15432/openbot_dev uv run pytest tests/test_database_backends.py'
+```
+
+These checks run migrations in both directions, exercise transactions, and reopen
+checkpoints and memory with and without semantic search. PostgreSQL tests create
+and drop uniquely named disposable databases; SQLite checks always run. The local
+service uses trust authentication and must remain bound to loopback. Normal app
+development continues to use SQLite unless `DATABASE_URL` is explicitly set.
 
 ## Troubleshooting
 

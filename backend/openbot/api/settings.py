@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.engine import make_url
 
 from openbot.api.deps import get_services
 from openbot.api.schemas import DatabaseLocationOut, SettingOut
@@ -18,7 +19,7 @@ def database_location(database_url: str) -> str:
         if database == ":memory:":
             return database
         return str(Path(database).expanduser().resolve().parent)
-    return database_url
+    return make_url(database_url).render_as_string(hide_password=True)
 
 
 router = APIRouter(prefix="/settings", tags=["settings"])

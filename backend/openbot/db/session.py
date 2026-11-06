@@ -48,7 +48,8 @@ def _alembic_config(database_url: str) -> Config:
     here = Path(__file__).resolve().parent
     cfg = Config()
     cfg.set_main_option("script_location", str(here / "migrations"))
-    cfg.set_main_option("sqlalchemy.url", database_url)
+    # ConfigParser treats percent-encoded credentials and URL parameters as interpolation.
+    cfg.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
     return cfg
 
 
