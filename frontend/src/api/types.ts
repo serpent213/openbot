@@ -47,19 +47,3 @@ export interface McpCatalogEntry { id: string; name: string; description: string
 export interface SetupStatus { complete: boolean; chat: { ok: boolean; providers: string[] }; embeddings: { ok: boolean; model: string; reason: string | null }; missing: string[]; }
 export interface AppSetting { key: string; group: string; label: string; description: string; type: "int" | "float" | "bool" | "str" | "list" | "secret"; value: unknown; default: unknown; overridden: boolean; secret: boolean; is_set: boolean; optional?: boolean; }
 export interface DatabaseLocation { location: string; }
-
-export type CardStatus = "backlog" | "ready" | "doing" | "review" | "done" | "blocked";
-export interface Board { id: string; name: string; description: string; created_at: string; updated_at: string; }
-export interface BoardCard {
-  id: string; board_id: string; title: string; description: string; status: CardStatus;
-  assignee_id: string | null; thread_id: string | null; result: string; blocked_reason: string;
-  version: number; created_at: string; updated_at: string;
-}
-export interface BoardCardUpdate {
-  expected_version: number; title?: string; description?: string; status?: CardStatus;
-  assignee_handle?: string | null; thread_id?: string | null; result?: string; blocked_reason?: string;
-}
-export interface BoardCardEvent {
-  id: string; actor_handle: string; action: string; version: number;
-  changes: Record<string, unknown>; created_at: string;
-}

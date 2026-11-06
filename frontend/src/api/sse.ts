@@ -1,8 +1,9 @@
+import { pluginEvents } from "../plugins/events";
 import { useEffect, useRef } from "react";
 import { BASE, getApiKey } from "./client";
 import type { BusEvent } from "./types";
 
-const EVENTS = ["message.created", "run.updated", "run.event", "inbox.updated", "bots.updated", "waiters.updated", "thread.updated", "scheduled.updated", "todos.updated", "board.updated"];
+const EVENTS = ["message.created", "run.updated", "run.event", "inbox.updated", "bots.updated", "waiters.updated", "thread.updated", "scheduled.updated", "todos.updated"];
 
 /**
  * Open one bus subscription. Returns the unsubscribe function.
@@ -27,7 +28,7 @@ export function subscribeBusEvents(
     opened = true;
   };
   const handler = (ev: MessageEvent) => { try { onEvent(JSON.parse(ev.data)); } catch { /* ignore */ } };
-  EVENTS.forEach((n) => es.addEventListener(n, handler as EventListener));
+  [...EVENTS, ...pluginEvents].forEach((n) => es.addEventListener(n, handler as EventListener));
   return () => es.close();
 }
 

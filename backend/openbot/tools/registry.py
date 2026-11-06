@@ -96,4 +96,10 @@ def build_registry(settings) -> ToolRegistry:
     for t in SELECTABLE_TOOLS:
         reg.register(t)
     reg.load_plugins(Path(settings.tools_dir))
+    from openbot.plugins import load_plugins
+    for plugin in load_plugins(settings.plugin_modules):
+        for tool in plugin.tools:
+            if reg.has(tool.name):
+                raise ValueError(f"plugin {plugin.id}: duplicate tool {tool.name}")
+            reg.register(tool, source=f"plugin:{plugin.id}")
     return reg

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
+import { pluginPages } from "../plugins/registry";
 import { setOpenBotTitle } from "../lib/documentTitle";
 
 const PAGE_TITLES: Record<string, string> = {
@@ -9,7 +10,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/bots/new": "New bot",
   "/settings": "Settings",
   "/scheduled": "Scheduled",
-  "/boards": "Boards",
+  ...Object.fromEntries(pluginPages.map(p => [p.path, p.title])),
   "/lab/openlings": "Openlings Lab",
   "/lab/office": "Living Office",
 };

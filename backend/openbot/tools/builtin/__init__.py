@@ -1,4 +1,3 @@
-from openbot.tools.builtin.boards import BOARD_TOOLS
 from openbot.tools.builtin.bot_profiles import (
                     read_bot_description,
                     read_bot_instructions,
@@ -16,4 +15,3 @@ from openbot.tools.builtin.todo import todo_write
 
 SELECTABLE_TOOLS = [run_shell, read_file, write_file, edit_file, patch_file, list_files, search_code, find_files, http_request, fetch_url, create_bot,
                     read_bot_description, read_bot_instructions, update_bot_description, update_bot_instructions, todo_write, scratchpad, load_skill]
-SELECTABLE_TOOLS += BOARD_TOOLS

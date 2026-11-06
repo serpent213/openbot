@@ -43,6 +43,9 @@ class Settings(BaseSettings):
 
     workspace_root: Path = Path("./workspace")
     tools_dir: Path = Path("./tools")
+    plugin_modules: list[str] = []  # JSON array of installed Python module names; restart to change
+    plugin_state_dir: Path = Path("./.openbot/plugins")
+    plugin_config: dict[str, dict] = {}
     # MCP servers (docs/superpowers/specs/2026-09-17-mcp-design.md): Claude Code's mcpServers file; PUBLIC_URL builds
     # the OAuth redirect URI; credentials are Fernet-encrypted with MCP_TOKEN_KEY, or a key generated once into the file.
     mcp_config: Path = Path("./mcp.json")

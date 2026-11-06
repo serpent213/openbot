@@ -12,7 +12,7 @@ import httpx
 from dotenv import find_dotenv, load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.engine import make_url
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -30,7 +30,6 @@ from openbot.api import (
     threads,
     tools,
 )
-from openbot.api import boards as boards_api
 from openbot.api import mcp as mcp_api
 from openbot.api import models as models_api
 from openbot.api import settings as settings_api
@@ -38,7 +37,6 @@ from openbot.api import setup as setup_api
 from openbot.api import telegram as telegram_api
 from openbot.api import workspace as workspace_api
 from openbot.api.deps import require_api_key
-from openbot.boards import BoardError
 from openbot.config import Settings, get_settings
 from openbot.db.session import (
     create_all,
@@ -49,6 +47,7 @@ from openbot.db.session import (
 )
 from openbot.logsetup import configure_logging
 from openbot.mcp import build_mcp_manager
+from openbot.plugins import load_plugins, start_plugins, stop_plugins
 from openbot.runtime import activity, app_settings
 from openbot.runtime.actors import ActorSystem
 from openbot.runtime.bus import EventBus
@@ -129,6 +128,7 @@ async def close_services(services: Services) -> None:
 
 
 async def start_background(services: Services) -> None:
+    await start_plugins(services)
     if not services.env_defaults:                      # services built by hand (tests) skip build_services
         await app_settings.apply_stored_overrides(services)
     if services.model_catalog is not None:
@@ -195,6 +195,7 @@ async def stop_background(services: Services) -> None:
         except Exception:
             log.exception("memory reflection failed during shutdown")
         await services.reflector.shutdown()
+    await stop_plugins(services)
 
 
 _BUSES_TO_CLOSE: list = []
@@ -272,21 +273,20 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
         owned = app.state.services is None
         if owned:
             app.state.services = await build_services(settings)
-        await start_background(app.state.services)
         unregister_bus = close_buses_on_uvicorn_exit(app.state.services.bus)
         try:
+            await start_background(app.state.services)
             yield
         finally:
             unregister_bus()
-            await stop_background(app.state.services)
-            if owned:
-                await close_services(app.state.services)
+            try:
+                await stop_background(app.state.services)
+            finally:
+                if owned:
+                    await close_services(app.state.services)
 
     app = FastAPI(title="OpenBot", lifespan=lifespan)
 
-    @app.exception_handler(BoardError)
-    async def board_error_handler(_request, error: BoardError):
-        return JSONResponse(status_code=error.status, content={"detail": str(error)})
     app.state.settings = settings
     app.state.services = services
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"])
@@ -321,8 +321,19 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
     for r in (actors.router, bots.router, threads.router, messages.router, inbox.router, runs.router, tools.router,
               providers.router, models_api.router, events.router, settings_api.router, mcp_api.router, setup_api.router,
-              workspace_api.router, activity_api.router, scheduled.router, boards_api.router):
+              workspace_api.router, activity_api.router, scheduled.router):
         api.include_router(r)
+    occupied = {(route.path, method) for route in api.routes for method in getattr(route, "methods", [])}
+    for plugin in load_plugins(settings.plugin_modules):
+        if plugin.router is not None:
+            for route in plugin.router.routes:
+                for method in getattr(route, "methods", []):
+                    key = ("/api/v1" + route.path, method)
+                    if key in occupied:
+                        raise ValueError(f"plugin {plugin.id}: duplicate route {key}")
+                    occupied.add(key)
+            # Plugin APIs inherit the same authentication dependency as core routes.
+            api.include_router(plugin.router)
     app.include_router(public)
     app.include_router(api)
     # Telegram webhook must be public (Telegram sends updates without our API key).

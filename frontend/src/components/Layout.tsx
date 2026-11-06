@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { Api } from "../api/client";
+import { pluginPages } from "../plugins/registry";
 import { useBusEvents } from "../api/sse";
 import { refreshBotActivity, shouldRefreshBots } from "../lib/botActivity";
 import { isThreadActive, recentThreads, threadLabel } from "../lib/recentThreads";
@@ -66,7 +67,7 @@ const NAV = [
   { to: "/inbox", label: "Inbox", Icon: InboxIcon, end: false },
   { to: "/threads", label: "Threads", Icon: ThreadsIcon, end: true },
   { to: "/bots", label: "Bots", Icon: BotsIcon, end: true },
-  { to: "/boards", label: "Boards", Icon: ThreadsIcon, end: true },
+  ...pluginPages.map(p => ({ to: p.path, label: p.title, Icon: ThreadsIcon, end: true })),
   { to: "/settings", label: "Settings", Icon: SettingsIcon, end: false },
   { to: "/scheduled", label: "Scheduled", Icon: ThreadsIcon, end: true },
 ] as const;

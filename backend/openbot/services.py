@@ -14,6 +14,8 @@ from openbot.config import Settings
 class Services:
     settings: Settings
     session_factory: async_sessionmaker[AsyncSession]
+    plugin_hosts: dict = field(default_factory=dict)
+    plugin_stack: Any = None
     registry: Any = None       # ToolRegistry
     bus: Any = None            # EventBus
     store: Any = None          # langgraph BaseStore

@@ -14,7 +14,7 @@ import BotEditorPage from "./pages/BotEditorPage";
 import BotPage from "./pages/BotPage";
 import SettingsPage from "./pages/SettingsPage";
 import ScheduledPage from "./pages/ScheduledPage";
-import BoardsPage from "./pages/BoardsPage";
+import { pluginPages } from "./plugins/registry";
 import DocumentTitle from "./components/DocumentTitle";
 import { Spinner } from "./components/ui";
 
@@ -59,7 +59,7 @@ function MainApp() {
             <Route path="/bots/:id" element={<BotPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/scheduled" element={<ScheduledPage />} />
-            <Route path="/boards" element={<BoardsPage />} />
+            {pluginPages.map(({ path, component: Page }) => <Route key={path} path={path} element={<Page />} />)}
           </Route>
         </Routes>
         </SetupGate>
