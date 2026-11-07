@@ -23,7 +23,7 @@ def install(monkeypatch, name, **kwargs):
 def test_explicit_loading_versions_and_dependencies(monkeypatch):
     a = install(monkeypatch, "first")
     b = install(monkeypatch, "second", requires=("first",))
-    assert [p.id for p in load_plugins([b, a])] == ["first", "second"]
+    assert [p.id for p in load_plugins([b, a])] == ["claude", "telegram", "first", "second"]
     with pytest.raises(ValueError, match="dependencies"):
         load_plugins([b])
     with pytest.raises(ValueError, match="duplicate"):

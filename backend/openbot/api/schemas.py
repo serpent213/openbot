@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from openbot.bot_icons import DEFAULT_BOT_ICON, validate_bot_icon
 
-Provider = Literal["auto", "openai", "anthropic", "openrouter", "xai", "ollama", "claude-code"]
+Provider = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")]
 # Providers whose model may be left empty: auto picks one, a CLI then uses its own default.
 MODEL_OPTIONAL = ("auto", "claude-code")
 HANDLE_RE = r"^[a-z0-9_-]{2,32}$"
@@ -78,13 +78,6 @@ class BotCreate(BaseModel):
     @classmethod
     def validate_icon(cls, value: str) -> str:
         return validate_bot_icon(value)
-
-    @field_validator("model")
-    @classmethod
-    def validate_model(cls, value: str, info) -> str:
-        if info.data.get("provider", "auto") not in MODEL_OPTIONAL and not value:
-            raise ValueError("model is required unless provider is \"auto\" or a CLI")
-        return value
 
     @field_validator("model_settings")
     @classmethod

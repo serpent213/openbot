@@ -829,7 +829,7 @@ class Runner:
         if (
             self.s.registry is None
             or not getattr(self.s.settings, "defer_mcp_tools", True)
-            or adapter_for(bot.bot.provider) is not None
+            or adapter_for(bot.bot.provider, self.s.settings) is not None
         ):
             return []
         # Approval-gated tools stay loaded: the human-in-the-loop check runs before the deferred
@@ -1103,7 +1103,7 @@ class Runner:
                 history_messages=len(inputs.get("messages", [])),
                 model_call_limit=self.model_call_limit(bot),
             )
-            cli = adapter_for(bot.bot.provider)
+            cli = adapter_for(bot.bot.provider, self.s.settings)
             if cli is not None:
                 # The turn runs in a coding agent CLI instead of create_agent (runtime/cli_agents).
                 await execute_cli_turn(

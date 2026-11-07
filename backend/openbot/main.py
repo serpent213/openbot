@@ -30,12 +30,12 @@ from openbot.api import (
     threads,
     tools,
 )
+from openbot.api import commands as commands_api
 from openbot.api import mcp as mcp_api
 from openbot.api import models as models_api
 from openbot.api import plugin_settings as plugin_settings_api
 from openbot.api import settings as settings_api
 from openbot.api import setup as setup_api
-from openbot.api import telegram as telegram_api
 from openbot.api import workspace as workspace_api
 from openbot.api.deps import require_api_key
 from openbot.config import Settings, get_settings
@@ -152,30 +152,13 @@ async def start_background(services: Services) -> None:
     if services.scheduler is not None:
         await recover_processing(services)
         await services.scheduler.start()
-    # Start the Telegram delivery listener if a bot token is configured.
-    if services.settings.telegram_bot_token:
-        from openbot.channels.telegram import TelegramDeliveryListener, TelegramLongPoller
-        listener = TelegramDeliveryListener(services)
-        await listener.start()
-        services._telegram_listener = listener
-        # Start long-polling transport unless webhook mode is explicitly selected.
-        if services.settings.telegram_transport != "webhook":
-            poller = TelegramLongPoller(services)
-            await poller.start()
-            services._telegram_poller = poller
-        else:
-            log.info("Telegram webhook transport selected; long-poller not started")
+    from openbot.plugins import start_plugin_background
+    await start_plugin_background(services)
 
 
 async def stop_background(services: Services) -> None:
-    # Stop the Telegram long-poller (before actors, so no new updates enter).
-    poller = services._telegram_poller
-    if poller is not None:
-        await poller.stop()
-    # Stop the Telegram delivery listener before actors (so no new deliveries start).
-    listener = services._telegram_listener
-    if listener is not None:
-        await listener.stop()
+    from openbot.plugins import stop_plugin_background
+    await stop_plugin_background(services)
     if services.scheduler is not None:
         await services.scheduler.stop()
     if services.actors is not None:
@@ -324,7 +307,7 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
     core_routers = (actors.router, bots.router, threads.router, messages.router, inbox.router, runs.router, tools.router,
               providers.router, models_api.router, events.router, settings_api.router, mcp_api.router, setup_api.router,
-              workspace_api.router, activity_api.router, scheduled.router, plugin_settings_api.router)
+              workspace_api.router, activity_api.router, scheduled.router, plugin_settings_api.router, commands_api.router)
     for r in core_routers:
         api.include_router(r)
     reserved = {r.prefix.split("/")[1] for r in core_routers if r.prefix} | {"plugins", "health", "channels"}
@@ -341,11 +324,13 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
                     occupied.add(key)
             # Plugin APIs inherit the same authentication dependency as core routes.
             api.include_router(plugin.router)
+    for plugin in plugins:
+        if plugin.public_router:
+            if plugin.id in reserved or plugin.public_router.prefix != f"/{plugin.id}":
+                raise ValueError("public plugin routes must use the plugin ID prefix")
+            public.include_router(plugin.public_router)
     app.include_router(public)
     app.include_router(api)
-    # Telegram webhook must be public (Telegram sends updates without our API key).
-    # Mounted at /api/v1/channels/telegram/* — no API-key guard.
-    app.include_router(telegram_api.router, prefix="/api/v1")
 
     dist = settings.frontend_dist
     if dist and Path(dist).is_dir():

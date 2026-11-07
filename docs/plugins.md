@@ -197,3 +197,81 @@ The plugin API is a compatibility contract, not process isolation. Existing shel
 access can bypass tool-level permissions. Keep installation/configuration in
 operator hands; API v1 intentionally has no package installer, marketplace, agent
 self-enablement or automatic dispatcher.
+
+## Commands, channels and coding backends (API 1.2)
+
+Plugins may additionally register `commands`, `backends`, `background`, and a
+`public_router`. Telegram and Claude Code are bundled plugins using these same
+interfaces; Signal and Codex are separate packages. These are trusted in-process
+extensions, with the same privileges as other plugins.
+
+### Conversation commands
+
+`Command(name=..., description=..., arguments=ArgumentModel, handler=...)` registers
+a command. The async handler receives a `CommandContext` and a validated Pydantic
+argument object, and returns `CommandResult(text, thread_id=None)`. Arguments are
+positional in model-field order; quote values containing spaces. Duplicate names
+fail startup. Prefer a plugin prefix, such as `kanban_list`, for external commands.
+`/help` and the web composer discover the registry automatically.
+
+Only explicit human input enters the dispatcher. Model replies, documents and tool
+output are never parsed as commands. Prefix literal slash text with `//`.
+Commands are not automatically generated from agent tools. The web UI uses the
+authenticated `GET/POST /api/v1/commands` API, rather than impersonating a bot.
+
+Core commands: `/help`, `/threads` (latest 30), `/attach <thread-id>`, `/new`, and
+`/status`. Telegram contributes `/start`. `/new` preserves the old conversation
+and copies its default bot and working directory. `/attach` switches the web view
+or external chat to an existing conversation. Ordinary channel users can only
+list/attach to conversations they already participate in. Explicitly configured
+channel operators have the same conversation access as the web operator.
+
+### Channel plugins
+
+Use a plugin `background(host)` async context manager to connect the transport.
+It starts after actors are ready and stops before them. Call
+`host.channels.set_sender(async_send)` to register delivery, and
+`await host.channels.receive(chat_id=..., sender_id=..., name=..., text=...,
+message_id=..., operator=False, default_bot=None)` for authenticated input.
+Stable sender/message IDs are essential. The plugin must authenticate and allowlist
+senders before passing input to the host; never derive operator status from text.
+
+Each external chat follows one thread. Multiple chats may follow the same thread.
+Bot replies are queued in the message transaction and delivered independently of
+the transient UI event bus. Switching attachments drops pending replies from the
+old attachment, and new replies there are no longer forwarded. Ordinary web-human
+messages are not mirrored to external chats. Thread deletion invalidates delivery;
+the next inbound message creates a fresh conversation.
+
+The host persists bindings, inbound receipts and outgoing attempts in the app DB.
+It retries failures with capped backoff. This is **at-least-once**, not exactly-once:
+a crash after sending but before committing success may duplicate a reply. The
+worker assumes one Openbot process per database. Back up the app DB and plugin
+state directories. Inbound transport replay windows remain transport-dependent.
+
+A `public_router` is an explicit exception to Openbot API-key authentication,
+restricted to `/<plugin-id>` under `/api/v1`. Every callback must validate its own
+transport authentication. Keep administration on the normal authenticated router.
+Telegram requires a configured webhook secret; its endpoint is now
+`/api/v1/telegram/webhook`. Update any existing webhook registration when upgrading.
+Telegram's former core settings are imported once into plugin settings; use the
+Plugin: telegram card afterwards. Set allowed user IDs explicitly (empty denies
+all). This initial adapter supports direct text messages, not groups, topics,
+edited-message execution, or attachments.
+
+### Coding backend plugins
+
+Register `backends=(MyAdapter(),)` using the exported `CliAdapter`, `StreamParser`,
+`Turn`, `TurnResult`, `CliAgentError`, and `UnknownSession` contracts. Provider IDs
+must be unique. The existing runner owns process cleanup, timeouts, session events,
+usage recording and final replies. Explicit executable paths use
+`CLI_PATHS='{"codex":"/path/to/codex"}'`; otherwise executables are found on PATH.
+Adapters provide `access_hints` so the bot editor describes their actual permission
+semantics. Claude's restricted file tools and Codex's command sandbox differ.
+
+Coding bots retain normal Openbot identities and participate through `@mentions`.
+Internal bots can update boards/ledgers and delegate implementation to them; coding
+bots can mention the coordinator in their final reply. They use their own toolsets,
+not Openbot's tools, skills or configured MCP servers. This API does not yet provide
+interactive approval forwarding or a tool bridge. Auth belongs to the CLI under the
+service user's account; Openbot checks login status without reading its credentials.

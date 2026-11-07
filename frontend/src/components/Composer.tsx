@@ -55,7 +55,7 @@ async function decodeImages(files: File[]): Promise<{ attachments: AttachmentIn[
  * The prompt. A `❯` in the gutter, the text you type, and the keys that send it — the one place
  * the interface is allowed to look like a terminal on purpose.
  */
-export default function Composer({ threadId, handles, onSend, disabled, hint, autoFocus, running }: { threadId: string; handles: string[]; onSend: (text: string, attachments: AttachmentIn[]) => Promise<void>; disabled?: boolean; hint?: string; autoFocus?: boolean; running?: boolean }) {
+export default function Composer({ threadId, handles, onSend, disabled, hint, autoFocus, running, commandNames = [] }: { threadId: string; handles: string[]; commandNames?: string[]; onSend: (text: string, attachments: AttachmentIn[]) => Promise<void>; disabled?: boolean; hint?: string; autoFocus?: boolean; running?: boolean }) {
   const [text, setText] = useState(() => getThreadDraft(threadId));
   const [caret, setCaret] = useState(0);
   const [sel, setSel] = useState(0);
@@ -72,8 +72,11 @@ export default function Composer({ threadId, handles, onSend, disabled, hint, au
   useEffect(() => { if (autoFocus && ref.current) ref.current.focus(); }, [autoFocus]);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const q = mentionQuery(text, caret);
-  const options = q && q.start !== dismissedAt ? handles.filter((h) => h.startsWith(q.query)).slice(0, 6) : [];
+  const slash = /^\/[a-z_]*$/.test(text) && caret === text.length;
+  const options = slash && dismissedAt !== 0 ? commandNames.filter((n) => n.startsWith(text.slice(1))).slice(0, 8)
+    : q && q.start !== dismissedAt ? handles.filter((h) => h.startsWith(q.query)).slice(0, 6) : [];
   const pick = (h: string) => {
+    if (slash) { edit(`/${h} `); setCaret(h.length + 2); setSel(0); ref.current?.focus(); return; }
     if (!q) return;
     const r = applyMention(text, q.start, caret, h);
     edit(r.text);
@@ -126,7 +129,7 @@ export default function Composer({ threadId, handles, onSend, disabled, hint, au
           {options.map((h, i) => (
             <div key={h} role="option" aria-selected={i === sel} onMouseDown={(e) => { e.preventDefault(); pick(h); }}
               className={`cursor-pointer px-3 py-1.5 text-[13px] ${i === sel ? "bg-sunken text-fg" : "text-muted"}`}>
-              <span className="text-accent-strong">@</span>{h}
+              <span className="text-accent-strong">{slash ? "/" : "@"}</span>{h}
             </div>
           ))}
         </div>
@@ -163,7 +166,7 @@ export default function Composer({ threadId, handles, onSend, disabled, hint, au
             value={text}
             disabled={disabled}
             aria-label="Message"
-            placeholder={hint ?? "Type a message. @handle addresses a bot."}
+            placeholder={hint ?? "Type a message. @handle addresses a bot; / lists commands."}
             className="min-h-[4.25rem] flex-1 resize-none bg-transparent text-[13.5px] leading-relaxed text-fg outline-none placeholder:text-faint disabled:cursor-not-allowed"
             onChange={(e) => {
               edit(e.target.value); setCaret(e.target.selectionStart); setSel(0);
@@ -182,7 +185,7 @@ export default function Composer({ threadId, handles, onSend, disabled, hint, au
                 if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => (s + 1) % options.length); return; }
                 if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => (s - 1 + options.length) % options.length); return; }
                 if (e.key === "Tab" || e.key === "Enter") { e.preventDefault(); pick(options[sel]); return; }
-                if (e.key === "Escape") { e.preventDefault(); setDismissedAt(q?.start ?? null); return; }
+                if (e.key === "Escape") { e.preventDefault(); setDismissedAt(slash ? 0 : q?.start ?? null); return; }
               }
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
             }}

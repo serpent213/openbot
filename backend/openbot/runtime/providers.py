@@ -75,9 +75,11 @@ def effective_bot_profile(bot: BotProfile, settings: Settings) -> tuple[str, str
     whose provider has no key falls back to OpenRouter with the Settings bot model, when OpenRouter
     is configured; otherwise it keeps its provider and fails with a clear "not configured" error.
     """
-    if adapter_for(bot.provider) is not None:
+    if adapter_for(bot.provider, settings) is not None:
         # Runs through a local CLI (runtime/cli_agents); an empty model is the CLI's own default.
         return bot.provider, bot.model
+    if bot.provider not in STATUS_PROVIDER_ORDER:
+        raise ValueError(f"unknown or disabled provider: {bot.provider}")
     if bot.provider == AUTO_PROVIDER:
         dp = default_provider(settings)
         if dp is None:
@@ -188,7 +190,7 @@ def side_task_profile(bot: BotProfile, settings: Settings) -> tuple[str, str, di
     run in its CLI and never get here, but the side tasks done on its behalf (thread title, memory
     extraction) need a chat model, and the CLI is not one: they use the default provider, like an auto
     bot, and fail like an unconfigured auto bot when there is none."""
-    if adapter_for(bot.provider) is None:
+    if adapter_for(bot.provider, settings) is None:
         return (*effective_bot_profile(bot, settings), bot.model_settings)
     dp = default_provider(settings)
     if dp is None:

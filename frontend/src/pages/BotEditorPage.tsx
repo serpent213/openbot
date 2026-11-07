@@ -212,9 +212,9 @@ export default function BotEditorPage() {
         )}
         {cli && (
           <>
-            <Field label="Access" hint={permission === "edit"
+            <Field label="Access" hint={cli.access_hints?.[permission] ?? (permission === "edit"
               ? "Reads and changes files in the thread's working directory. Runs no commands."
-              : "Reads files in the thread's working directory. Changes nothing, runs no commands."}>
+              : "Reads files in the thread's working directory. Changes nothing, runs no commands.")}>
               <Select aria-label="Access" value={permission} onChange={(e) => set("model_settings", { ...form.model_settings, permission: e.target.value })}>
                 <option value="read-only">Read only</option>
                 <option value="edit">Read and edit files</option>
@@ -242,7 +242,7 @@ export default function BotEditorPage() {
       {cli ? (
         <Card className="space-y-3">
           <SectionTitle>Tools</SectionTitle>
-          <Hint className="text-xs">{cli.label} works with its own file tools at the access level above. OpenBot's tools, skills and MCP servers are not available inside it.</Hint>
+          <Hint className="text-xs">{cli.label} works with its own tools at the access level above. OpenBot's tools, skills and MCP servers are not available inside it.</Hint>
         </Card>
       ) : (
         <>

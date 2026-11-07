@@ -27,7 +27,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 @router.get("", response_model=list[SettingOut])
 async def list_settings(services: Services = Depends(get_services)):
-    return await app_settings.describe(services)
+    return [s for s in await app_settings.describe(services) if not s["key"].startswith("telegram_")]
 
 
 @router.get("/database-location", response_model=DatabaseLocationOut)
@@ -38,11 +38,13 @@ async def get_database_location(services: Services = Depends(get_services)):
 @router.patch("", response_model=list[SettingOut])
 async def patch_settings(body: dict[str, Any], services: Services = Depends(get_services)):
     """Set one or more runtime settings. The batch is validated as a whole: a bad key or value leaves nothing changed."""
+    if any(k.startswith("telegram_") for k in body):
+        raise HTTPException(422, "Telegram settings moved to /plugins/telegram/settings")
     try:
         await app_settings.update_settings(services, body)
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
-    return await app_settings.describe(services)
+    return [s for s in await app_settings.describe(services) if not s["key"].startswith("telegram_")]
 
 
 @router.delete("/{key}", response_model=list[SettingOut])
@@ -52,4 +54,4 @@ async def reset_setting(key: str, services: Services = Depends(get_services)):
         await app_settings.reset_setting(services, key)
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
-    return await app_settings.describe(services)
+    return [s for s in await app_settings.describe(services) if not s["key"].startswith("telegram_")]

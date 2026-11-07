@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from openbot.api.deps import get_services
-from openbot.runtime.cli_agents import ADAPTERS, CliAgentError, adapter_for
+from openbot.runtime.cli_agents import CliAgentError, adapter_for, adapters
 from openbot.runtime.cli_agents.base import check_version, child_env, find_executable, login_status
 from openbot.runtime.providers import list_ollama_models, provider_configured, provider_status
 from openbot.services import Services
@@ -16,7 +16,7 @@ async def providers(services: Services = Depends(get_services)):
     ollama_models = await list_ollama_models(st, getattr(services, "http_client", None))
     # Only a file lookup; the CLI itself runs in cli_agent below, once the editor asks for it.
     cli_agents = [{"id": a.provider, "label": a.label, "found": find_executable(a, st) is not None,
-                   "models": list(a.models)} for a in ADAPTERS.values()]
+                   "models": list(a.models), "access_hints": a.access_hints} for a in adapters(st).values()]
     return {"providers": provider_status(st, ollama_models), "cli_agents": cli_agents,
             "embedding_model": st.embedding_model, "embeddings_configured": provider_configured(st, emb_provider)}
 
@@ -25,7 +25,7 @@ async def providers(services: Services = Depends(get_services)):
 async def cli_agent(provider: str, services: Services = Depends(get_services)):
     """Where the CLI is, its version and whether it is logged in. The login state is the exit code of
     the CLI's own status command; its output is not passed on."""
-    adapter = adapter_for(provider)
+    adapter = adapter_for(provider, services.settings)
     if adapter is None:
         raise HTTPException(404, "not a CLI provider")
     out = {"id": adapter.provider, "label": adapter.label, "path": find_executable(adapter, services.settings),

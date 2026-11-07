@@ -324,3 +324,31 @@ class PluginSetting(Base):
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
     value: Mapped[dict] = mapped_column(JSON, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+
+class ChannelBinding(Base):
+    __tablename__ = "channel_bindings"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    chat_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    thread_id: Mapped[str] = mapped_column(ForeignKey("threads.id", ondelete="CASCADE"), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    __table_args__ = (UniqueConstraint("channel", "chat_id"),)
+
+
+class ChannelReceipt(Base):
+    __tablename__ = "channel_receipts"
+    channel: Mapped[str] = mapped_column(String(32), primary_key=True)
+    external_id: Mapped[str] = mapped_column(String(250), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+
+class ChannelDelivery(Base):
+    __tablename__ = "channel_deliveries"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    binding_id: Mapped[str] = mapped_column(ForeignKey("channel_bindings.id", ondelete="CASCADE"), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    next_attempt: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)

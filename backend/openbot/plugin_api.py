@@ -24,20 +24,32 @@ from sqlalchemy.orm import DeclarativeBase
 from openbot.db.models import Actor, Thread, TimestampMixin, UTCDateTime, new_id, utcnow
 
 if TYPE_CHECKING:
+    from openbot.runtime.channels import ChannelHost
+    from openbot.runtime.cli_agents.base import CliAdapter
+    from openbot.runtime.commands import Command
     from openbot.runtime.plugin_settings import SettingsStore
 
-API_VERSION = (1, 1)
+API_VERSION = (1, 2)
 
 __all__ = [
     "API_VERSION",
     "ActorRef",
+    "CliAdapter",
+    "CliAgentError",
+    "Command",
+    "CommandContext",
+    "CommandResult",
     "ModelBase",
     "Plugin",
     "PluginHost",
     "PluginSettings",
+    "StreamParser",
     "TimestampMixin",
     "ToolContext",
+    "Turn",
+    "TurnResult",
     "UTCDateTime",
+    "UnknownSession",
     "find_actor",
     "host_from_request",
     "host_from_runtime",
@@ -87,6 +99,11 @@ class Plugin:
     settings: PluginSettings | None = None
     requires: tuple[str, ...] = ()
     tools: tuple[BaseTool, ...] = ()
+    commands: tuple[Command, ...] = ()
+    backends: tuple[CliAdapter, ...] = ()
+    # Public callbacks must authenticate the transport themselves.
+    public_router: APIRouter | None = None
+    background: Callable[[PluginHost], AbstractAsyncContextManager[None]] | None = None
     router: APIRouter | None = None
     migrations: Path | None = None
     lifespan: Callable[[PluginHost], AbstractAsyncContextManager[None]] | None = None
@@ -101,6 +118,7 @@ class PluginHost:
     config: dict[str, Any]
     _publish: Callable[[str, str | None, dict], Awaitable[None]]
     settings: SettingsStore | None = None
+    channels: ChannelHost | None = None
     state: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -168,3 +186,14 @@ def host_from_request(request: Request, plugin_id: str) -> PluginHost:
 
 def host_from_runtime(runtime, plugin_id: str) -> PluginHost:
     return runtime.context.services.plugin_hosts[plugin_id]
+
+# Stable plugin extension contracts.
+from openbot.runtime.cli_agents.base import (
+    CliAdapter,
+    CliAgentError,
+    StreamParser,
+    Turn,
+    TurnResult,
+    UnknownSession,
+)
+from openbot.runtime.commands import Command, CommandContext, CommandResult

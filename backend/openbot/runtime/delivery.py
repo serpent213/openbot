@@ -106,7 +106,7 @@ def _system_notice(thread_id: str, content: str, *, created_at, mentions: list[s
 async def create_thread(services, session: AsyncSession, *, title: str, handles: list[str], created_by: Actor | None,
                         external_ref: str | None = None, include_human: bool = True,
                         default_bot_handle: str | None = None, working_directory: str | None = None,
-                        kind: str = "chat") -> Thread:
+                        kind: str = "chat", commit: bool = True) -> Thread:
     by_handle = await _actors_by_handle(session)
     unknown = [h for h in handles if h not in by_handle]
     if unknown:
@@ -145,6 +145,9 @@ async def create_thread(services, session: AsyncSession, *, title: str, handles:
         ids.add(by_handle[HUMAN_HANDLE].id)
     for aid in ids:
         session.add(ThreadParticipant(thread_id=thread.id, actor_id=aid))
+    if not commit:
+        await session.flush()
+        return thread
     await session.commit()
     await activity.record(services, "thread.created", thread_id=thread.id,
                           summary=f"thread {effective_title!r} created by @{created_by.handle if created_by else 'system'}",
@@ -288,6 +291,8 @@ async def post_message(services, session: AsyncSession, *, thread_id: str, sende
                               item_id=it.id, message_id=it.message_id,
                               summary=f"queued {it.kind} for @{owner.handle if owner else it.actor_id}",
                               kind=it.kind, owner_kind=owner.kind if owner else None)
+    from openbot.runtime.channels import enqueue_replies
+    await enqueue_replies(session, messages)
     await session.commit()
     for m in messages:
         if services.store is not None:

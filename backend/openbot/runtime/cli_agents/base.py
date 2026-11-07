@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from langchain_core.messages import AIMessage, BaseMessage
 from pydantic import AliasChoices
@@ -126,6 +126,10 @@ class CliAdapter(ABC):
     # The CLI's own "am I logged in" command; its exit code is the answer (0 means yes).
     status_argv: tuple[str, ...] = ()
     login_hint: str = ""
+    access_hints: ClassVar[dict[str, str]] = {
+        READ_ONLY: "Reads files in the thread working directory. Runs no commands.",
+        EDIT: "Reads and edits files in the thread working directory. Runs no commands.",
+    }
     models: tuple[str, ...] = ()        # suggestions for the editor; any model the CLI accepts works
     session_id_re: re.Pattern[str] = re.compile(r"^[0-9a-fA-F-]{8,64}$")
 
@@ -165,7 +169,7 @@ def _runnable(path: str) -> bool:
 
 def find_executable(adapter: CliAdapter, settings: Settings, *, paths: list[str] | None = None) -> str | None:
     """The configured path when set (and only that), else the first runnable candidate."""
-    configured = getattr(settings, adapter.path_setting, None)
+    configured = settings.cli_paths.get(adapter.provider) or getattr(settings, adapter.path_setting, None)
     if configured:
         path = str(Path(configured).expanduser())
         return path if _runnable(path) else None

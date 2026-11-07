@@ -66,10 +66,13 @@ def _validate_tools(services: Services, tool_names: list[str], approval_tools: l
             raise HTTPException(422, f"unknown skills: {unknown}")
 
 
-def _validate_model(provider: str, model: str, model_settings: dict | None = None) -> None:
-    if provider not in MODEL_OPTIONAL and not model:
+def _validate_model(provider: str, model: str, model_settings: dict | None = None, settings=None) -> None:
+    from openbot.runtime.providers import STATUS_PROVIDER_ORDER
+    if provider not in STATUS_PROVIDER_ORDER and adapter_for(provider, settings) is None:
+        raise HTTPException(422, "unknown or disabled provider")
+    if provider not in MODEL_OPTIONAL and not model and adapter_for(provider, settings) is None:
         raise HTTPException(422, 'model is required unless provider is "auto" or a CLI')
-    cli = adapter_for(provider)
+    cli = adapter_for(provider, settings)
     if cli is not None:
         error = settings_error(cli, model, model_settings)
         if error:
@@ -99,7 +102,7 @@ async def list_bots(session: AsyncSession = Depends(get_session)):
 async def create_bot(body: BotCreate, session: AsyncSession = Depends(get_session),
                      services: Services = Depends(get_services)):
     _validate_tools(services, body.tool_names, body.approval_tools, body.skill_names)
-    _validate_model(body.provider, body.model, body.model_settings)
+    _validate_model(body.provider, body.model, body.model_settings, settings=services.settings)
     if await handle_taken(session, body.handle):
         raise HTTPException(409, "handle already exists")
     data = body.model_dump()
@@ -172,7 +175,7 @@ async def update_bot(bot_id: str, body: BotUpdate, session: AsyncSession = Depen
     _validate_tools(services, data.get("tool_names", actor.bot.tool_names), data.get("approval_tools", actor.bot.approval_tools),
                     data.get("skill_names", actor.bot.skill_names))
     _validate_model(data.get("provider", actor.bot.provider), data.get("model", actor.bot.model),
-                    data.get("model_settings", actor.bot.model_settings))
+                    data.get("model_settings", actor.bot.model_settings), settings=services.settings)
     if "handle" in data and data["handle"] != actor.handle and await handle_taken(session, data["handle"]):
         raise HTTPException(409, "handle already exists")
     for k, v in data.items():

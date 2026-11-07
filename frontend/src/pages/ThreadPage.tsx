@@ -125,9 +125,20 @@ export default function ThreadPage() {
     qc.invalidateQueries({ queryKey: ["thread", id] });
     qc.invalidateQueries({ queryKey: ["thread-usage", id] });
   });
+  const commandList = useQuery({ queryKey: ["commands"], queryFn: () => Api.listCommands() });
   const send = useMutation({
-    mutationFn: ({ content, attachments }: { content: string; attachments: AttachmentIn[] }) => Api.postMessage(id, { content, attachments: attachments.length ? attachments : undefined }),
-    onSuccess: (r) => setNotice(r.unaddressed ? "No bot was addressed. Mention a bot with @handle or set a default bot to wake one up." : null),
+    mutationFn: async ({ content, attachments }: { content: string; attachments: AttachmentIn[] }) => {
+      if (content.startsWith("/") && !content.startsWith("//")) {
+        if (attachments.length) throw new Error("Commands do not accept attachments.");
+        const result = await Api.command(id, content);
+        if (result.thread_id && result.thread_id !== id) nav(`/threads/${result.thread_id}`);
+        qc.invalidateQueries({ queryKey: ["threads"] });
+        return { unaddressed: false, command: result.text };
+      }
+      return { ...await Api.postMessage(id, { content: content.startsWith("//") ? content.slice(1) : content,
+        attachments: attachments.length ? attachments : undefined }), command: null };
+    },
+    onSuccess: (r) => setNotice(r.command ?? (r.unaddressed ? "No bot was addressed. Mention a bot with @handle or set a default bot to wake one up." : null)),
   });
   const loadOlder = useMutation({
     mutationFn: () => Api.getThread(id, state.messages[0].id),
@@ -260,9 +271,9 @@ export default function ThreadPage() {
       </div>
       <div className="border-t border-line pt-3">
         <TodoPanel lists={state.todos} />
-        {notice && <p className="mb-1.5 text-xs text-warn">{notice}</p>}
+        {notice && <p className="mb-1.5 whitespace-pre-wrap text-xs text-warn">{notice}</p>}
         <ErrorText error={send.error} />
-        <Composer key={id} threadId={id} handles={handles} running={!!openRuns} autoFocus={detail.data.messages.length === 0} onSend={async (text, attachments) => { await send.mutateAsync({ content: text, attachments }); }} />      </div>
+        <Composer commandNames={commandList.data?.map((c) => c.name)} key={id} threadId={id} handles={handles} running={!!openRuns} autoFocus={detail.data.messages.length === 0} onSend={async (text, attachments) => { await send.mutateAsync({ content: text, attachments }); }} />      </div>
     </div>
   );
 }

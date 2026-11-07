@@ -17,6 +17,8 @@ class Services:
     plugins: list | None = None
     plugin_hosts: dict = field(default_factory=dict)
     plugin_stack: Any = None
+    plugin_background: Any = None
+    channels: Any = None
     registry: Any = None       # ToolRegistry
     bus: Any = None            # EventBus
     store: Any = None          # langgraph BaseStore
@@ -33,8 +35,6 @@ class Services:
     langgraph_stack: Any = None  # AsyncExitStack holding the checkpointer/store; replaced when embeddings change
     env_defaults: dict = field(default_factory=dict)  # tunables' values before stored overrides (see runtime/app_settings.py)
     _owned_resources: list = field(default_factory=list)
-    _telegram_listener: Any = None  # TelegramDeliveryListener (started in start_background)
-    _telegram_poller: Any = None  # TelegramLongPoller (started in start_background for long-polling mode)
     _seed_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _rename_tasks: set = field(default_factory=set)  # thread titles being generated (runtime/renaming.py)
     scheduler: Any = None

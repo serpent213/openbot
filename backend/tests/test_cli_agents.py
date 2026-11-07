@@ -12,16 +12,16 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import get_args
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy import select
 
-from openbot.api.schemas import MODEL_OPTIONAL, Provider
 from openbot.db.models import ActivityLog, Actor, BotProfile, InboxItem, Message, Run, RunEvent
 from openbot.runtime import cli_agents
-from openbot.runtime.cli_agents import ADAPTERS, adapter_for, base
+from openbot.runtime.cli_agents import adapter_for, adapters, base
+
+ADAPTERS = adapters()
 from openbot.runtime.cli_agents.base import (
     EDIT,
     READ_ONLY,
@@ -168,7 +168,9 @@ async def thread_messages(services, thread_id):
 # --- the adapter registry ----------------------------------------------------------------------------
 
 def test_every_adapter_is_a_provider_the_api_accepts():
-    assert set(ADAPTERS) <= set(get_args(Provider)) and set(ADAPTERS) <= set(MODEL_OPTIONAL)
+    from openbot.api.bots import _validate_model
+    for provider in ADAPTERS:
+        _validate_model(provider, "")
     assert adapter_for("claude-code") is CLAUDE and adapter_for("openai") is None and adapter_for(None) is None
 
 
@@ -755,7 +757,7 @@ async def test_providers_lists_the_cli_by_whether_it_is_found_without_running_it
     settings.claude_code_path = str(tmp_path / "no-claude")
     r = await client.get("/api/v1/providers")
     assert r.json()["cli_agents"] == [{"id": "claude-code", "label": "Claude Code", "found": False,
-                                         "models": ["sonnet", "opus", "haiku"]}]
+                                         "models": ["sonnet", "opus", "haiku"], "access_hints": CLAUDE.access_hints}]
     assert "claude-code" not in {p["id"] for p in r.json()["providers"]}
     settings.claude_code_path = str(exe)
     assert (await client.get("/api/v1/providers")).json()["cli_agents"][0]["found"] is True

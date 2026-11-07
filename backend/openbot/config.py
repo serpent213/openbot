@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -15,6 +15,8 @@ TELEGRAM_TOKEN_RE = re.compile(r"^\d+:[A-Za-z0-9_-]{30,}$")
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=(".env", "../.env"), env_file_encoding="utf-8", extra="ignore")
+
+    _coding_backends: dict | None = PrivateAttr(default=None)
 
     database_url: str = "sqlite+aiosqlite:///./.openbot/openbot.db"
     root_directory: Path | None = Field(default=None, validation_alias="OPENBOT_ROOT_DIRECTORY")
@@ -69,6 +71,7 @@ class Settings(BaseSettings):
     # its usual install locations unless its *_PATH names the executable; a run is stopped after the
     # timeout (a bot can set its own in model_settings.timeout_seconds).
     claude_code_path: str | None = None
+    cli_paths: dict[str, str] = {}  # Explicit paths keyed by plugin backend provider ID.
     cli_agent_timeout: int = 1800
 
     max_concurrent_runs: int = 4

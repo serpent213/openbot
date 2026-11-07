@@ -113,6 +113,7 @@ describe("ThreadPage window re-entry", () => {
       return Promise.resolve(detail(id, [...(server[id] ?? [])])) as never;
     };
     fake.api.getThreadUsage = () => Promise.resolve(usageTotals) as never;
+    fake.api.listCommands = () => Promise.resolve([{name: "help", description: "Help"}]) as never;
     fake.api.listBots = () => Promise.resolve([{ id: "b1", name: "Bot", handle: "bot", enabled: true, icon: null } as unknown as Bot]) as never;
     fake.api.ackThread = () => Promise.resolve({ acked: 0 }) as never;
     fake.api.getRun = (id: string) => Promise.resolve({ ...run(id, runStatus[id] ?? "running"), events: [] }) as never;
@@ -123,6 +124,21 @@ describe("ThreadPage window re-entry", () => {
   });
   // A page left mounted keeps its window Esc listener, which would cancel runs in later tests.
   afterEach(() => { act(() => root.unmount()); el.remove(); });
+
+  it("dispatches slash commands without posting an agent message and follows the returned thread", async () => {
+    fake.api.command = vi.fn().mockResolvedValue({text: "Following", thread_id: "t2"});
+    fake.api.postMessage = vi.fn();
+    await mount("/threads/t1");
+    await until(() => text().includes("first reply"), "initial history");
+    await type("/attach t2");
+    await act(async () => {
+      const send = Array.from(el.querySelectorAll("button")).find((b) => b.textContent === "Send")!;
+      send.click();
+    });
+    await until(() => getThreadCalls.includes("t2"), "attached thread");
+    expect(fake.api.command).toHaveBeenCalledWith("t1", "/attach t2");
+    expect(fake.api.postMessage).not.toHaveBeenCalled();
+  });
 
   it("renders and refreshes live usage counters", async () => {
     await mount("/threads/t1");
@@ -500,6 +516,7 @@ describe("ThreadPage Esc stops open runs", () => {
     runs = [run("r1", "running"), { ...run("r2", "queued"), actor_id: "b2" }];
     fake.api.getThread = () => Promise.resolve({ ...detail("t1", [m1]), runs }) as never;
     fake.api.getThreadUsage = () => Promise.resolve({ model_calls: 0, prompt_tokens: 0, completion_tokens: 0, cache_read_tokens: 0 }) as never;
+    fake.api.listCommands = () => Promise.resolve([{name: "help", description: "Help"}]) as never;
     fake.api.listBots = () => Promise.resolve([{ id: "b1", name: "Coder", handle: "coder", enabled: true, icon: null } as unknown as Bot]) as never;
     fake.api.ackThread = () => Promise.resolve({ acked: 0 }) as never;
     fake.api.getRun = (id: string) => Promise.resolve({ ...(runs.find((r) => r.id === id) ?? run(id, "completed")), events: [] }) as never;
