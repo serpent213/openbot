@@ -280,6 +280,11 @@ async def test_run_shell_kills_process_group_on_timeout(tmp_path):
     pid_file = tmp_path / "child.pid"
     assert pid_file.exists()
     child_pid = int(pid_file.read_text().strip())
+    # Waiting for bash does not wait for signal delivery to its other group members.
+    for _ in range(100):
+        if not alive(child_pid):
+            break
+        await asyncio.sleep(0.01)
     assert not alive(child_pid)
 
 
