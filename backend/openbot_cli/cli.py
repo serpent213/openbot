@@ -20,6 +20,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from uuid import UUID
 
 import click
 
@@ -45,7 +46,36 @@ def _make_client(base_url: str, api_key: str | None) -> OpenBotClient:
     return OpenBotClient(base_url=base_url, api_key=api_key)
 
 
-@click.group()
+class _ClientErrorGroup(click.Group):
+    def invoke(self, ctx: click.Context):
+        try:
+            return super().invoke(ctx)
+        except OpenBotClientError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+
+def _resolve_thread_id(client: OpenBotClient, value: str) -> str:
+    """Expand a displayed prefix; full UUIDs need no listing request."""
+    try:
+        UUID(value)
+    except ValueError:
+        pass
+    else:
+        return value
+    ids = [thread["id"] for thread in client.list_threads()]
+    if value in ids:
+        return value
+    matches = [tid for tid in ids if tid.startswith(value)]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise click.ClickException(f"No thread matches {value!r}.")
+    raise click.ClickException(
+        f"Ambiguous thread ID {value!r}; use a longer prefix: " + ", ".join(matches)
+    )
+
+
+@click.group(cls=_ClientErrorGroup)
 @click.option("--base-url", envvar="OPENBOT_URL", default=None, help="OpenBot base URL (env: OPENBOT_URL).")
 @click.option("--api-key", envvar="OPENBOT_API_KEY", default=None, help="API key (env: OPENBOT_API_KEY).")
 @click.pass_context
@@ -116,6 +146,7 @@ def threads(ctx: click.Context, subcommand: str | None, as_json: bool) -> None:
 def thread(ctx: click.Context, thread_id: str, subcommand: str | None, limit: int, as_json: bool) -> None:
     """Show a thread's messages. Add `watch` to follow live events."""
     client: OpenBotClient = ctx.obj["client"]
+    thread_id = _resolve_thread_id(client, thread_id)
     detail = client.get_thread(thread_id, limit=limit)
     if as_json:
         click.echo(json.dumps(detail, indent=2, default=str))
@@ -162,6 +193,7 @@ def send(ctx: click.Context, thread_id: str, message: str, bots: tuple[str, ...]
          sender: str | None, as_json: bool) -> None:
     """Send MESSAGE to THREAD_ID. Use --bot @handle to address a bot."""
     client: OpenBotClient = ctx.obj["client"]
+    thread_id = _resolve_thread_id(client, thread_id)
     to = [b.lstrip("@") for b in bots]
     result = client.send_message(thread_id, message, to=to, sender=sender)
     if as_json:
@@ -195,6 +227,8 @@ def bots(ctx: click.Context, as_json: bool) -> None:
 def runs(ctx: click.Context, thread_id: str | None, as_json: bool) -> None:
     """List runs, optionally for one THREAD_ID."""
     client: OpenBotClient = ctx.obj["client"]
+    if thread_id is not None:
+        thread_id = _resolve_thread_id(client, thread_id)
     data = client.list_runs(thread_id)
     if as_json:
         click.echo(json.dumps(data, indent=2, default=str))

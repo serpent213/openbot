@@ -109,6 +109,8 @@ def test_send_message_defaults_sender_to_human():
     captured = {}
 
     def handler(req):
+        if req.url.path == "/api/v1/threads":
+            return _json_response([{"id": "t1"}])
         if req.url.path.endswith("/messages"):
             captured["body"] = json.loads(req.content)
             return _json_response({"message": {"id": "m1"}, "addressed": [], "unaddressed": True}, status=201)
@@ -235,7 +237,7 @@ def test_cli_thread_shows_messages():
             {"sender_name": "you", "created_at": "2026-10-20T10:00:00Z", "content": "hello", "mentions": ["eng"]}
         ],
     }
-    c = _client(lambda req: _json_response(detail) if req.method == "GET" and "/threads/" in req.url.path else _json_response({}))
+    c = _client(lambda req: _json_response(detail) if req.method == "GET" and "/threads/" in req.url.path else _json_response([{"id": "t1"}]))
     result = _runner_with_client(c)(["thread", "t1"])
     assert result.exit_code == 0, result.output
     assert "hello" in result.output
@@ -246,6 +248,8 @@ def test_cli_send_posts_and_reports_addressed():
     captured = {}
 
     def handler(req):
+        if req.url.path == "/api/v1/threads":
+            return _json_response([{"id": "t1"}])
         if req.url.path.endswith("/messages"):
             captured["body"] = json.loads(req.content)
             return _json_response(
@@ -350,6 +354,8 @@ def test_cli_thread_watch_streams(monkeypatch):
         yield b"event: message.created\ndata: " + json.dumps({"sender_name": "eng", "created_at": "2026-10-20T10:00:00Z", "content": "on it"}).encode() + b"\n\n"
 
     def handler(req):
+        if req.url.path == "/api/v1/threads":
+            return _json_response([{"id": "t1"}])
         # The `thread` command first fetches the detail (JSON), then opens the
         # SSE stream for `watch`; serve each with the right content type.
         if req.url.path.startswith("/api/v1/events"):
@@ -370,3 +376,72 @@ def test_cli_thread_watch_streams(monkeypatch):
     result = _runner_with_client(c)(["thread", "t1", "watch"])
     assert result.exit_code == 0, result.output
     assert "on it" in result.output
+
+
+@pytest.mark.parametrize("command", ["thread", "watch", "send", "runs"])
+def test_cli_resolves_displayed_thread_prefix(command, monkeypatch):
+    tid = "9124a607-1111-4222-8333-444444444444"
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        if req.url.path == "/api/v1/threads":
+            return _json_response([{"id": tid}])
+        if req.url.path.endswith("/messages"):
+            return _json_response({"message": {"sender_name": "you"}})
+        if req.url.path == "/api/v1/runs":
+            return _json_response([])
+        return _json_response({"title": "Trip", "messages": []})
+
+    client = _client(handler)
+    watched = []
+    monkeypatch.setattr(client, "stream_events", lambda thread_id: watched.append(thread_id) or iter(()))
+    args = {
+        "thread": ["thread", "9124a607"],
+        "watch": ["thread", "9124a607", "watch"],
+        "send": ["send", "9124a607", "hello"],
+        "runs": ["runs", "9124a607"],
+    }[command]
+    result = _runner_with_client(client)(args)
+    assert result.exit_code == 0, result.output
+    assert len(seen) == 2
+    if command == "runs":
+        assert seen[1].url.params["thread_id"] == tid
+    else:
+        assert seen[1].url.path.startswith(f"/api/v1/threads/{tid}")
+    if command == "watch":
+        assert watched == [tid]
+
+
+@pytest.mark.parametrize("ids, error", [
+    ([], "No thread matches"),
+    (["9124a607-one", "9124a607-two"], "Ambiguous thread ID"),
+])
+def test_cli_rejects_unresolved_prefix_before_sending(ids, error):
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        return _json_response([{"id": tid} for tid in ids])
+
+    result = _runner_with_client(_client(handler))(["send", "9124a607", "hello"])
+    assert result.exit_code == 1
+    assert error in result.output
+    assert len(seen) == 1 and seen[0].method == "GET"
+    for tid in ids:
+        assert tid in result.output
+
+
+def test_cli_full_thread_uuid_skips_listing_and_reports_api_error():
+    tid = "9124a607-1111-4222-8333-444444444444"
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        return _json_response({"detail": "thread not found"}, status=404)
+
+    result = _runner_with_client(_client(handler))(["thread", tid])
+    assert result.exit_code == 1
+    assert "Error:" in result.output and "thread not found" in result.output
+    assert isinstance(result.exception, SystemExit)
+    assert len(seen) == 1 and seen[0].url.path == f"/api/v1/threads/{tid}"
