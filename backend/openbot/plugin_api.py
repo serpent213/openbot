@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from openbot.runtime.commands import Command
     from openbot.runtime.plugin_settings import SettingsStore
 
-API_VERSION = (1, 2)
+API_VERSION = (1, 3)
 
 __all__ = [
     "API_VERSION",

@@ -16,7 +16,8 @@ async def providers(services: Services = Depends(get_services)):
     ollama_models = await list_ollama_models(st, getattr(services, "http_client", None))
     # Only a file lookup; the CLI itself runs in cli_agent below, once the editor asks for it.
     cli_agents = [{"id": a.provider, "label": a.label, "found": find_executable(a, st) is not None,
-                   "models": list(a.models), "access_hints": a.access_hints} for a in adapters(st).values()]
+                   "models": list(a.models), "access_hints": a.access_hints,
+                   "supports_network_access": a.supports_network_access} for a in adapters(st).values()]
     return {"providers": provider_status(st, ollama_models), "cli_agents": cli_agents,
             "embedding_model": st.embedding_model, "embeddings_configured": provider_configured(st, emb_provider)}
 

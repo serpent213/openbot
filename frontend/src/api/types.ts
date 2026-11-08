@@ -33,7 +33,7 @@ export interface ToolInfo { name: string; description: string; source: string; a
 export interface SkillInfo { id: string; name: string; description: string; path: string; }
 export interface ProviderInfo { id: string; configured: boolean; models: string[]; default_model: string; }
 /** A coding agent CLI a bot can run on; `found` is only a file lookup. */
-export interface CliAgentInfo { id: string; label: string; found: boolean; models: string[]; access_hints?: Record<string, string>; }
+export interface CliAgentInfo { id: string; label: string; found: boolean; models: string[]; access_hints?: Record<string, string>; supports_network_access?: boolean; }
 export interface ProvidersOut { providers: ProviderInfo[]; cli_agents?: CliAgentInfo[]; embedding_model: string; embeddings_configured: boolean; }
 /** GET /providers/cli/{id}: what running the CLI found out, or why it can't run. */
 export interface CliAgentStatus { id: string; label: string; path: string | null; version: string | null; logged_in: boolean | null; problem: string | null; }

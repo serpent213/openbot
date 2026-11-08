@@ -81,6 +81,7 @@ class Turn:
     session_id: str | None
     model: str
     permission: str
+    network_access: bool = False
 
 
 @dataclass
@@ -130,6 +131,7 @@ class CliAdapter(ABC):
         READ_ONLY: "Reads files in the thread working directory. Runs no commands.",
         EDIT: "Reads and edits files in the thread working directory. Runs no commands.",
     }
+    supports_network_access: bool = False
     models: tuple[str, ...] = ()        # suggestions for the editor; any model the CLI accepts works
     session_id_re: re.Pattern[str] = re.compile(r"^[0-9a-fA-F-]{8,64}$")
 
@@ -205,6 +207,13 @@ def settings_error(adapter: CliAdapter, model: str, model_settings: dict | None)
         return f"invalid {adapter.label} model {model!r}"
     if ms.get("permission", READ_ONLY) not in PERMISSIONS:
         return f"permission must be one of {', '.join(PERMISSIONS)}"
+    network = ms.get("network_access", False)
+    if not isinstance(network, bool):
+        return "network_access must be a boolean"
+    if network and not adapter.supports_network_access:
+        return f"{adapter.label} does not support command network access"
+    if network and ms.get("permission", READ_ONLY) != EDIT:
+        return "network_access requires edit permission"
     timeout = ms.get("timeout_seconds")
     if timeout is not None and (not isinstance(timeout, int) or isinstance(timeout, bool) or timeout < 1):
         return "timeout_seconds must be a positive whole number"
@@ -380,12 +389,12 @@ OnEvent = Callable[[str, Any], Awaitable[None]]
 
 async def _turn(adapter: CliAdapter, executable: str, *, cwd: str, env: dict[str, str], system_prompt: str,
                 prompt: str, session_id: str | None, model: str, permission: str, timeout: float,
-                on_event: OnEvent, baseline: dict | None = None) -> TurnResult:
+                on_event: OnEvent, baseline: dict | None = None, network_access: bool = False) -> TurnResult:
     fd, prompt_file = tempfile.mkstemp(prefix="openbot-system-", suffix=".md")   # 0600
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(system_prompt)
     argv = adapter.argv(executable, Turn(system_prompt_file=prompt_file, session_id=session_id, model=model,
-                                         permission=permission))
+                                         permission=permission, network_access=network_access))
     parser = adapter.parser()
     stderr_task: asyncio.Task | None = None
     try:
@@ -456,7 +465,8 @@ async def run_turn(adapter: CliAdapter, executable: str, *, cwd: str, env: dict[
         raise CliAgentError(f"error: {error}")
     await check_version(adapter, executable, env)
     kwargs = {"cwd": cwd, "env": env, "system_prompt": system_prompt, "model": model, "timeout": timeout,
-              "permission": (model_settings or {}).get("permission", READ_ONLY), "on_event": on_event}
+              "permission": (model_settings or {}).get("permission", READ_ONLY), "on_event": on_event,
+              "network_access": (model_settings or {}).get("network_access", False)}
     if resume is not None and adapter.session_id_re.match(resume[0]):
         try:
             return await _turn(adapter, executable, prompt=resume[1], session_id=resume[0], baseline=resume[2], **kwargs)

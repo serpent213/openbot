@@ -222,3 +222,28 @@ it("says why a CLI bot cannot run, also when the CLI is gone", async () => {
   expect(el.querySelector<HTMLSelectElement>("select[aria-label=Access]")!.value).toBe("edit");
   expect(el.querySelector<HTMLInputElement>("input[list=cli-models]")!.value).toBe("sonnet");
 });
+
+
+it("saves opt-in command networking and clears it when switching to read only", async () => {
+  vi.mocked(Api.getProviders).mockResolvedValue({ ...providers, cli_agents: [
+    { id: "codex", label: "Codex", found: true, models: [], supports_network_access: true },
+  ] });
+  vi.spyOn(Api, "getCliAgent").mockResolvedValue({ ...ready, id: "codex", label: "Codex" });
+  vi.spyOn(Api, "getBot").mockResolvedValue({ ...bot("b1", "Coder"), provider: "codex",
+    model_settings: { permission: "edit" } });
+  const update = vi.spyOn(Api, "updateBot").mockImplementation(async (id, b) => ({ ...bot(id, "Coder"), ...b } as Bot));
+  await show("/edit/b1");
+  await until(() => el.textContent!.includes("Allow command network access"));
+  const toggle = [...el.querySelectorAll<HTMLInputElement>("input[type=checkbox]")]
+    .find((input) => input.closest("label")?.textContent?.includes("Allow command network access"))!;
+  expect(toggle.checked).toBe(false);
+  await act(async () => { toggle.click(); });
+  await submit();
+  await until(() => update.mock.calls.length > 0);
+  expect(update.mock.calls[0][1].model_settings).toMatchObject({ permission: "edit", network_access: true });
+  await pick(el.querySelector<HTMLSelectElement>("select[aria-label=Access]")!, "read-only");
+  expect(el.textContent).not.toContain("Allow command network access");
+  await submit();
+  await until(() => update.mock.calls.length > 1);
+  expect(update.mock.calls[1][1].model_settings).toMatchObject({ permission: "read-only", network_access: false });
+});

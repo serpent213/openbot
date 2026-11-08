@@ -215,11 +215,16 @@ export default function BotEditorPage() {
             <Field label="Access" hint={cli.access_hints?.[permission] ?? (permission === "edit"
               ? "Reads and changes files in the thread's working directory. Runs no commands."
               : "Reads files in the thread's working directory. Changes nothing, runs no commands.")}>
-              <Select aria-label="Access" value={permission} onChange={(e) => set("model_settings", { ...form.model_settings, permission: e.target.value })}>
+              <Select aria-label="Access" value={permission} onChange={(e) => set("model_settings", { ...form.model_settings, permission: e.target.value, ...(e.target.value === "read-only" ? { network_access: false } : {}) })}>
                 <option value="read-only">Read only</option>
                 <option value="edit">Read and edit files</option>
               </Select>
             </Field>
+            {cli.supports_network_access && permission === "edit" && (
+              <Toggle checked={form.model_settings.network_access === true} onChange={(v) => set("model_settings", { ...form.model_settings, network_access: v })}>
+                Allow command network access <span className="font-sans text-xs text-muted">(Git, downloads and other outbound connections)</span>
+              </Toggle>
+            )}
             <Hint className={`text-xs sm:col-span-2${cliStatus.data?.problem ? " text-warn" : ""}`}>
               {cliStatus.isLoading ? `Checking ${cli.label}…`
                 : cliStatus.data?.problem ? withCode(cliStatus.data.problem)

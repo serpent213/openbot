@@ -757,7 +757,7 @@ async def test_providers_lists_the_cli_by_whether_it_is_found_without_running_it
     settings.claude_code_path = str(tmp_path / "no-claude")
     r = await client.get("/api/v1/providers")
     assert r.json()["cli_agents"] == [{"id": "claude-code", "label": "Claude Code", "found": False,
-                                         "models": ["sonnet", "opus", "haiku"], "access_hints": CLAUDE.access_hints}]
+                                         "models": ["sonnet", "opus", "haiku"], "access_hints": CLAUDE.access_hints, "supports_network_access": False}]
     assert "claude-code" not in {p["id"] for p in r.json()["providers"]}
     settings.claude_code_path = str(exe)
     assert (await client.get("/api/v1/providers")).json()["cli_agents"][0]["found"] is True
@@ -792,3 +792,15 @@ async def test_cli_status_says_why_the_cli_is_unusable(client, settings, fake, t
 
 def test_settings_default_timeout(settings):
     assert settings.cli_agent_timeout == 1800 and settings.claude_code_path is None
+
+
+def test_command_network_access_validation():
+    from copy import copy
+
+    adapter = copy(CLAUDE)
+    assert settings_error(adapter, "", {"permission": EDIT, "network_access": True})
+    adapter.supports_network_access = True
+    assert settings_error(adapter, "", {"permission": EDIT, "network_access": True}) is None
+    assert settings_error(adapter, "", {"network_access": True})
+    for invalid in ("false", 1, None):
+        assert "boolean" in settings_error(adapter, "", {"permission": EDIT, "network_access": invalid})

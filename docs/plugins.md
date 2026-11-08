@@ -275,3 +275,12 @@ bots can mention the coordinator in their final reply. They use their own toolse
 not Openbot's tools, skills or configured MCP servers. This API does not yet provide
 interactive approval forwarding or a tool bridge. Auth belongs to the CLI under the
 service user's account; Openbot checks login status without reading its credentials.
+
+### Command network access (API 1.3)
+
+Coding backends may declare `supports_network_access = True`. Core exposes an
+opt-in bot-editor toggle and passes the validated boolean
+`model_settings.network_access` as `Turn.network_access` (default false). It is
+only valid with edit permission. Backends must enforce it on new and resumed
+sessions without disabling the filesystem sandbox or approval policy. Unsupported
+backends reject enabling it. Plugins using this field require API `(1, 3)`.
