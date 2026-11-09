@@ -6,6 +6,7 @@ import hmac
 import json
 import logging
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 
 import httpx
@@ -114,13 +115,16 @@ class BotActor(_Worker):
         # run (blocking bot deletion, drawing an active card) for as long as the wait lasted.
         while True:
             sem = self.system.sem
-            waiting = sem.locked()
+            # Bound runs acquire their sandbox before the global execution permit
+            # in Runner.execute. A waiter for busy A must not starve idle B.
+            sandbox_mode = self.system.s.settings.sandboxes_enabled
+            waiting = not sandbox_mode and sem.locked()
             if waiting:
                 await activity.record(self.system.s, "worker.slot.wait", level="warning", actor_id=self.actor_id,
                                       summary=f"all {self.system.max_concurrent} run slots are busy; waiting for one",
                                       max_concurrent_runs=self.system.max_concurrent)
             t0 = time.monotonic()
-            async with sem:
+            async with (nullcontext() if sandbox_mode else sem):
                 if waiting:
                     await activity.record(self.system.s, "worker.slot.acquired", actor_id=self.actor_id,
                                           summary=f"got a run slot after {time.monotonic() - t0:.1f}s",
@@ -161,9 +165,13 @@ class BotActor(_Worker):
             group = [i for i in items if i.kind == "message" and i.thread_id == chosen.thread_id]
             thread = await session.get(Thread, chosen.thread_id)
             box = await session.get(Sandbox, thread.sandbox_id) if thread and thread.sandbox_id else None
+            from openbot.runtime.memory import bot_namespace, sandbox_namespace
+            namespace = (bot_namespace(self.actor_id) if box.share_global_memory
+                         else sandbox_namespace(self.actor_id, box.id)) if box else None
             run = Run(actor_id=self.actor_id, thread_id=chosen.thread_id, status="queued",
                       sandbox_id=thread.sandbox_id if thread else None,
-                      sandbox_generation=box.generation if box else None)
+                      sandbox_generation=box.generation if box else None,
+                      memory_namespace=list(namespace) if namespace else None)
             session.add(run)
             await session.flush()
             for i in group:
@@ -497,7 +505,9 @@ class ActorSystem:
             if task is not None:
                 await activity.record(self.s, "run.cancel_requested", level="warning", thread_id=run.thread_id,
                                       actor_id=run.actor_id, run_id=run_id, summary="cancelling the live run", live=True)
-                task.cancel()
+                # Repeated Stop requests must not interrupt in-flight cleanup.
+                if not task.cancelling():
+                    task.cancel()
                 return True
         async with self.s.session_factory() as session:
             run = await session.get(Run, run_id)

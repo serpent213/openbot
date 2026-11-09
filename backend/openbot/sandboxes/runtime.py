@@ -1,153 +1,193 @@
-"""Core policy and durable intent around an untrusted, replaceable worker backend."""
+"""Core policy, run admission and durable intent around worker execution."""
 from __future__ import annotations
 
 import asyncio
 import os
 from contextlib import asynccontextmanager
 from functools import wraps
+from types import SimpleNamespace
 
 from sqlalchemy import select, update
 
 from openbot.db.models import Sandbox, SandboxExecution, new_id
 from openbot.sandboxes import protocol
 from openbot.sandboxes.policy import WORKER_TOOLS
-from openbot.sandboxes.protocol import SandboxError
+from openbot.sandboxes.protocol import SandboxError, SandboxRejected
 
 
 def resource(settings, name):
     if not settings.sandboxes_enabled or not settings.openbot_api_key:
-        raise SandboxError("sandbox execution is disabled or API authentication is missing")
+        raise SandboxRejected("sandbox execution is disabled or API authentication is missing")
     slot = settings.sandbox_resources.get(name)
     if slot is None:
-        raise SandboxError("sandbox resource is not provisioned")
+        raise SandboxRejected("sandbox resource is not provisioned")
     if not hasattr(os, "getuid") or os.getuid() in (0, slot.uid):
-        raise SandboxError("sandbox controller and worker require distinct non-root UIDs")
+        raise SandboxRejected("sandbox controller and worker require distinct non-root UIDs")
     return slot
 
 
-def validate_bot(bot):
-    unknown = set(bot.bot.tool_names or ()) - WORKER_TOOLS.keys()
+def validate_bot(bot, settings=None):
+    from openbot.runtime.cli_agents import adapter_for
+    from openbot.tools.builtin.scratchpad import scratchpad
+    from openbot.tools.builtin.todo import todo_write
+    allowed = {*WORKER_TOOLS, scratchpad.name, todo_write.name, "schedule_message", "list_scheduled_messages"}
+    unknown = set(bot.bot.tool_names or ()) - allowed
     if unknown:
-        raise SandboxError("tools unavailable in sandbox prototype: " + ", ".join(sorted(unknown)))
-    if (bot.bot.load_repository_instructions or bot.bot.skill_names
-            or (bot.bot.model_settings or {}).get("web_search")):
-        raise SandboxError("sandbox prototype disables repository/skill discovery and hosted web tools")
-    if bot.bot.provider not in ("auto", "openai", "anthropic", "openrouter", "xai", "ollama"):
-        raise SandboxError("coding CLI and custom model backends are unavailable in sandbox prototype")
+        raise SandboxRejected("tools unavailable in sandbox: " + ", ".join(sorted(unknown)))
+    if (bot.bot.model_settings or {}).get("web_search"):
+        raise SandboxRejected("provider-hosted web tools are not adapted for sandbox mode; use worker HTTP")
+    if (bot.bot.provider not in ("auto", "openai", "anthropic", "openrouter", "xai", "ollama")
+            and adapter_for(bot.bot.provider, settings) is None):
+        raise SandboxRejected("unknown or disabled coding/model backend")
+
+
+async def quarantine(services, sandbox_id):
+    async with services.session_factory() as session:
+        await session.execute(update(Sandbox).where(Sandbox.id == sandbox_id).values(state="quarantined"))
+        await session.commit()
 
 
 async def recover(services):
-    """Single-controller startup: uncertain work quarantines its binding, never retries."""
+    """Interrupted state is never replayed. Worker lease EOF independently stops children."""
     async with services.session_factory() as session:
-        pending = (await session.scalars(select(SandboxExecution).where(
-            SandboxExecution.state == "pending"))).all()
+        pending = (await session.scalars(select(SandboxExecution).where(SandboxExecution.state == "pending"))).all()
         ids = {item.sandbox_id for item in pending}
         for item in pending:
             item.state = "unknown"
         rows = (await session.scalars(select(Sandbox).where(
-            (Sandbox.active_run_id.is_not(None)) | (Sandbox.id.in_(ids))))).all()
+            (Sandbox.active_run_id.is_not(None)) | Sandbox.id.in_(ids)))).all()
         for row in rows:
-            row.state = "quarantined"
-            row.active_run_id = None
+            row.state, row.active_run_id = "quarantined", None
         await session.commit()
 
 
 @asynccontextmanager
-async def binding(services, run, thread, bot):
+async def binding(services, run, thread, bot=None, *, wait=True):
     if not thread.sandbox_id:
         if services.settings.sandboxes_enabled or run.sandbox_id:
-            raise SandboxError("sandbox mode requires a bound thread; local fallback refused")
+            raise SandboxRejected("sandbox mode requires a bound thread; local fallback refused")
         yield
         return
     if run.sandbox_id != thread.sandbox_id:
-        raise SandboxError("run sandbox does not match immutable thread binding")
-    validate_bot(bot)
+        raise SandboxRejected("run sandbox does not match immutable thread binding")
+    if bot is not None:
+        validate_bot(bot, services.settings)
     claimed = False
     try:
         while not claimed:
             async with services.session_factory() as session:
                 box = await session.get(Sandbox, thread.sandbox_id)
                 if box is None or box.state != "active" or box.generation != run.sandbox_generation:
-                    raise SandboxError("sandbox binding is unavailable or stale")
+                    raise SandboxRejected("sandbox binding is unavailable or stale")
                 slot = resource(services.settings, box.resource)
                 if box.resource_spec != slot.model_dump():
-                    raise SandboxError("sandbox inventory changed; binding requires operator reconciliation")
+                    raise SandboxRejected("sandbox inventory changed; operator reconciliation required")
                 changed = await session.execute(update(Sandbox).where(
-                    Sandbox.id == box.id, Sandbox.state == "active",
-                    Sandbox.generation == run.sandbox_generation,
+                    Sandbox.id == box.id, Sandbox.state == "active", Sandbox.generation == run.sandbox_generation,
                     Sandbox.active_run_id.is_(None)).values(active_run_id=run.id))
-                await session.commit()
+                # Fence cancellation during commit: release even if the database
+                # committed before the await raised CancelledError.
                 claimed = changed.rowcount == 1
+                await session.commit()
             if not claimed:
-                await asyncio.sleep(0.1)
-        await execute(services, box.id, run.id, "probe", {}, thread.working_directory)
-        yield
+                if not wait:
+                    raise SandboxRejected("sandbox is busy")
+                await asyncio.sleep(0.05)
+        try:
+            async with protocol.run_lease(slot.socket_path, slot.uid, {
+                    "id": new_id(), "run_id": run.id, "resource": box.resource,
+                    "sandbox_id": box.id, "generation": box.generation}):
+                await execute(services, box.id, run.id, "probe", {}, thread.working_directory)
+                yield
+        except (SandboxRejected, asyncio.CancelledError):
+            # Known rejection or a cancellation with confirmed whole-run cleanup.
+            # Individual uncertain operations have their own recorded outcome.
+            raise
+        except BaseException as exc:
+            await quarantine(services, box.id)
+            if isinstance(exc, Exception):
+                raise SandboxError("sandbox run/cleanup failed; binding quarantined for inspection") from exc
+            raise
     finally:
         if claimed:
             async with services.session_factory() as session:
                 await session.execute(update(Sandbox).where(
-                    Sandbox.id == thread.sandbox_id, Sandbox.active_run_id == run.id
-                ).values(active_run_id=None))
+                    Sandbox.id == thread.sandbox_id, Sandbox.active_run_id == run.id).values(active_run_id=None))
                 await session.commit()
 
 
-async def execute(services, sandbox_id, run_id, operation, args, directory):
-    # LangGraph can invoke several tools in one model turn concurrently. Serialize
-    # those operations as well as runs; a worker's busy refusal is not a retry signal.
-    lock = services._sandbox_operations.setdefault(sandbox_id, asyncio.Lock())
-    async with lock:
-        return await _execute(services, sandbox_id, run_id, operation, args, directory)
-
-
-async def _execute(services, sandbox_id, run_id, operation, args, directory):
+async def execute(services, sandbox_id, run_id, operation, args, directory, *, on_event=None, skill_names=()):
     ident = new_id()
     async with services.session_factory() as session:
         box = await session.get(Sandbox, sandbox_id)
         if box is None or box.state != "active" or box.active_run_id != run_id:
-            raise SandboxError("sandbox is not active for this run")
+            raise SandboxRejected("sandbox is not active for this run")
         slot = resource(services.settings, box.resource)
         if box.resource_spec != slot.model_dump():
-            raise SandboxError("sandbox resource configuration changed")
+            raise SandboxRejected("sandbox resource configuration changed")
         session.add(SandboxExecution(id=ident, sandbox_id=box.id, generation=box.generation,
-                                     run_id=run_id, operation=operation))
+                                    run_id=run_id, operation=operation))
         await session.commit()
+    outcome = "unknown"
     try:
         result = await protocol.request(slot.socket_path, slot.uid, {
-            "id": ident, "resource": box.resource, "sandbox_id": box.id,
-            "generation": box.generation, "operation": operation,
-            "args": args, "directory": directory,
-        })
-        async with services.session_factory() as session:
-            item = await session.get(SandboxExecution, ident)
-            item.state = "completed"
-            await session.commit()
+            "id": ident, "run_id": run_id, "resource": box.resource, "sandbox_id": box.id,
+            "generation": box.generation, "operation": operation, "args": args, "directory": directory,
+            "tool_output_cap": services.settings.tool_output_cap,
+            "shell_output_cap": services.settings.shell_output_cap, "skill_names": list(skill_names),
+        }, on_event=on_event)
+        outcome = "completed"  # includes reported tool errors, not a success assertion
         return result
-    except BaseException:
-        # A cancellation or lost response says nothing about external effects. Do not
-        # save arguments/output here: they may contain credentials or private content.
+    except SandboxRejected:
+        outcome = "rejected"
+        raise
+    finally:
         async with services.session_factory() as session:
             item = await session.get(SandboxExecution, ident)
-            item.state = "unknown"
-            box = await session.get(Sandbox, sandbox_id)
-            box.state = "quarantined"
+            item.state = outcome
+            if outcome == "unknown":
+                await session.execute(update(Sandbox).where(Sandbox.id == sandbox_id).values(state="quarantined"))
             await session.commit()
-        raise
+
+
+async def inspect(services, sandbox_id, operation, args, directory=None):
+    """Operator discovery uses a short exclusive lease, never a server filesystem/probe."""
+    async with services.session_factory() as session:
+        box = await session.get(Sandbox, sandbox_id)
+        if box is None:
+            raise SandboxRejected("sandbox not found")
+    run = SimpleNamespace(id=new_id(), sandbox_id=box.id, sandbox_generation=box.generation)
+    thread = SimpleNamespace(sandbox_id=box.id, working_directory=directory)
+    async with binding(services, run, thread, wait=False):
+        return await execute(services, box.id, run.id, operation, args, directory)
 
 
 def tools(names):
+    from openbot.tools.builtin.scheduling import SCHEDULING_TOOLS
+    from openbot.tools.builtin.scratchpad import scratchpad
+    from openbot.tools.builtin.todo import todo_write
+    host_tools = {t.name: t for t in (scratchpad, todo_write, *SCHEDULING_TOOLS)}
     result = []
     for name in names:
+        if name in host_tools:
+            result.append(host_tools[name])
+            continue
         original = WORKER_TOOLS[name]
 
         def wrap(original):
             @wraps(original.coroutine)
             async def remote(*args, **kwargs):
-                runtime = kwargs.pop("runtime")
+                runtime = kwargs.pop("runtime", None)
+                # All routed schemas carry an injected ToolRuntime, including HTTP;
+                # never invoke the original handler in the controller.
                 ctx = runtime.context
                 if args:
-                    raise SandboxError("sandbox tools require named arguments")
-                return await execute(ctx.services, ctx.sandbox_id, ctx.run_id, original.name,
-                                     kwargs, ctx.working_directory)
+                    raise SandboxRejected("sandbox tools require named arguments")
+                try:
+                    return await execute(ctx.services, ctx.sandbox_id, ctx.run_id, original.name,
+                                         kwargs, ctx.working_directory, skill_names=ctx.skill_names or ())
+                except SandboxRejected as exc:
+                    return f"error: {exc}"
             return original.model_copy(update={"coroutine": remote})
 
         result.append(wrap(original))

@@ -8,10 +8,11 @@ from langchain_core.messages import AIMessage
 from sqlalchemy import select
 
 from openbot.db.models import Run, RunEvent
-from openbot.runtime import activity
+from openbot.runtime import activity, memory
 from openbot.runtime.cli_agents.base import (
     CliAdapter,
     CliAgentError,
+    TurnResult,
     child_env,
     find_executable,
     login_status,
@@ -56,18 +57,29 @@ async def execute_cli_turn(runner, adapter: CliAdapter, bot, thread, run, seq: i
     from openbot.runtime.runner import TOOL_RESULT_CAP
 
     s = runner.s
-    executable = find_executable(adapter, s.settings)
-    if executable is None:
-        raise CliAgentError(adapter.not_found)
-    workspace_root.mkdir(parents=True, exist_ok=True)
-    cwd = str(workspace_root)
+    executable, env = None, None
+    if thread.sandbox_id:
+        from openbot.sandboxes.runtime import execute
+        probe = await execute(s, thread.sandbox_id, run.id, "cli_probe", {"provider": adapter.provider},
+                              thread.working_directory)
+        cwd = probe["cwd"]
+    else:
+        executable = find_executable(adapter, s.settings)
+        if executable is None:
+            raise CliAgentError(adapter.not_found)
+        workspace_root.mkdir(parents=True, exist_ok=True)
+        cwd = str(workspace_root)
+        env = child_env()
+    # Snapshot every scope component, including memory policy, in session events.
+    scope = ({"sandbox_id": run.sandbox_id, "generation": run.sandbox_generation,
+              "memory_namespace": list(memory.run_namespace(run))} if thread.sandbox_id else {})
     previous = await _last_session(runner, bot.id, thread.id)
     # A session only resumes where it was made: the CLIs key their transcripts by working directory.
     resume = None
-    if previous and previous.get("agent") == adapter.provider and previous.get("session_id") and previous.get("cwd") == cwd:
+    if (previous and previous.get("agent") == adapter.provider and previous.get("session_id")
+            and previous.get("cwd") == cwd and previous.get("scope", {}) == scope):
         resume = (previous["session_id"], render_messages(since_last_reply(history) or history, bot.name),
                   previous.get("totals"))
-    env = child_env()
 
     async def on_event(kind: str, payload) -> None:
         nonlocal seq, session_id
@@ -96,7 +108,7 @@ async def execute_cli_turn(runner, adapter: CliAdapter, bot, thread, run, seq: i
         elif kind == "session":
             session_id = payload
             seq = await runner._record(run, seq, "cli_session", {"agent": adapter.provider, "session_id": payload,
-                                                                 "cwd": cwd})
+                                                                 "cwd": cwd, **({"scope": scope} if scope else {})})
         elif kind == "init":
             await activity.record(s, "run.cli_session", thread_id=run.thread_id, actor_id=run.actor_id, run_id=run.id,
                                   summary=f"{adapter.binary} started", agent=adapter.provider, cwd=cwd,
@@ -110,21 +122,29 @@ async def execute_cli_turn(runner, adapter: CliAdapter, bot, thread, run, seq: i
         if totals is None or session_id is None:
             return seq
         return await runner._record(run, seq, "cli_session", {"agent": adapter.provider, "session_id": session_id,
-                                                             "cwd": cwd, "totals": totals})
+                                                             "cwd": cwd, "totals": totals,
+                                                             **({"scope": scope} if scope else {})})
 
     ms = bot.bot.model_settings or {}
     try:
-        result = await run_turn(adapter, executable, cwd=cwd, env=env,
-                                system_prompt=prompt_text(system_prompt) + cli_note(adapter),
-                                full_prompt=render_messages(history, bot.name), resume=resume, model=bot.bot.model,
-                                model_settings=ms, timeout=ms.get("timeout_seconds") or s.settings.cli_agent_timeout,
-                                on_event=on_event)
+        arguments = {"system_prompt": prompt_text(system_prompt) + cli_note(adapter),
+                     "full_prompt": render_messages(history, bot.name), "resume": resume, "model": bot.bot.model,
+                     "model_settings": ms, "timeout": ms.get("timeout_seconds") or s.settings.cli_agent_timeout}
+        if thread.sandbox_id:
+            reply = await execute(s, thread.sandbox_id, run.id, "cli_turn",
+                                  {"provider": adapter.provider, "expected_cwd": cwd, **arguments}, thread.working_directory,
+                                  on_event=on_event)
+            if "cli_error" in reply:
+                raise CliAgentError(reply["cli_error"], usage=reply.get("usage"), totals=reply.get("totals"))
+            result = TurnResult(**reply)
+        else:
+            result = await run_turn(adapter, executable, cwd=cwd, env=env, **arguments, on_event=on_event)
     except CliAgentError as e:
         if e.usage:
             await runner._set_status(run.id, "running", usage=e.usage)
             seq = await session_totals(e.totals, seq)
         # The CLI's own message for a missing login is rarely actionable; ask it directly.
-        if await login_status(adapter, executable, env) is False:
+        if not thread.sandbox_id and await login_status(adapter, executable, env) is False:
             raise CliAgentError(f"error: {adapter.label} is not logged in. {adapter.login_hint}") from e
         raise
     if result.text.strip():
@@ -144,6 +164,7 @@ async def execute_cli_turn(runner, adapter: CliAdapter, bot, thread, run, seq: i
     if (bot.bot.memory_enabled and s.reflector is not None and result.text.strip()
             and default_provider(s.settings) is not None):
         try:
-            s.reflector.schedule(bot, [*history, AIMessage(content=result.text)], thread_id=thread.id)
+            s.reflector.schedule(bot, [*history, AIMessage(content=result.text)], thread_id=thread.id,
+                                 **({"namespace": memory.run_namespace(run)} if thread.sandbox_id else {}))
         except Exception:
             log.exception("could not schedule memory reflection for run %s", run.id)

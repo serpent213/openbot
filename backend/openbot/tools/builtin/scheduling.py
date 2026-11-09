@@ -52,9 +52,11 @@ async def schedule_message(delay_seconds: int, content: str, to: list[str] | Non
 async def list_scheduled_messages(runtime: ToolRuntime[RunContext]) -> str:
     """List this bot's scheduled messages and terminal outcomes."""
     async with runtime.context.services.session_factory() as session:
-        rows = (await session.execute(select(ScheduledMessage).where(
-            ScheduledMessage.sender_actor_id == runtime.context.actor_id
-        ).order_by(ScheduledMessage.due_at.desc()).limit(50))).scalars()
+        query = select(ScheduledMessage).where(ScheduledMessage.sender_actor_id == runtime.context.actor_id)
+        if runtime.context.sandbox_id:
+            query = query.join(Thread, Thread.id == ScheduledMessage.thread_id).where(
+                Thread.sandbox_id == runtime.context.sandbox_id)
+        rows = (await session.execute(query.order_by(ScheduledMessage.due_at.desc()).limit(50))).scalars()
         return "\n".join(f"{j.id} {j.status} {j.due_at.isoformat()} {j.content[:80]}" for j in rows) or "(none)"
 
 

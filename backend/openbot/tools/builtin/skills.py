@@ -37,13 +37,13 @@ async def enabled_skill_filter(ctx: RunContext) -> set[str]:
 async def available_skills(ctx: RunContext) -> list:
     """The skills this bot may load: discovered (workspace first, then the state dir),
     filtered to the bot's enabled list. A bot with no enabled skills sees none."""
-    settings = ctx.services.settings
+    settings = ctx.services.settings if ctx.services else None
     roots = [Path(ctx.workspace_root)]
-    state_dir = settings.state_dir
+    state_dir = settings.state_dir if settings else None
     if state_dir is not None and state_dir.resolve() != Path(ctx.workspace_root).resolve():
         roots.append(state_dir)
     skills = discover_skills(*roots)
-    enabled = await enabled_skill_filter(ctx)
+    enabled = set(ctx.skill_names) if ctx.skill_names is not None else await enabled_skill_filter(ctx)
     if not enabled:
         return []
     lowered = {s.lower() for s in enabled}

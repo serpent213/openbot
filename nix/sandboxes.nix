@@ -22,7 +22,17 @@ in {
       type = lib.types.path;
       description = "Absolute Python executable with this Openbot package and its existing dependencies installed.";
     };
-    packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ pkgs.bash pkgs.coreutils ]; };
+    packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ pkgs.bash pkgs.coreutils pkgs.gnupatch pkgs.ripgrep ]; };
+    workerPlugins = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [];
+      description = "Installed coding adapter modules, e.g. openbot_pi. No plugin lifespan/host tools are started.";
+    };
+    cliPaths = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = {};
+      description = "Worker-only executable paths keyed by backend ID; never copied from controller environment.";
+    };
   };
   config = lib.mkIf cfg.enable {
     assertions = [{
@@ -54,7 +64,9 @@ in {
         RuntimeDirectoryMode = "0750";
         WorkingDirectory = "${cfg.homeRoot}/${slot.name}";
         ExecStartPre = "${pkgs.coreutils}/bin/mkdir -p ${cfg.homeRoot}/${slot.name}/workspace";
-        ExecStart = "${cfg.python} -m openbot.sandboxes.worker --resource ${slot.name} --socket /run/${slot.name}/worker.sock --root ${cfg.homeRoot}/${slot.name}/workspace --controller-uid ${toString cfg.controllerUid}";
+        ExecStart = "${cfg.python} -I -m openbot.sandboxes.worker --resource ${slot.name} --socket /run/${slot.name}/worker.sock --root ${cfg.homeRoot}/${slot.name}/workspace --controller-uid ${toString cfg.controllerUid}"
+          + lib.concatMapStrings (module: " --plugin ${lib.escapeShellArg module}") cfg.workerPlugins
+          + lib.concatStrings (lib.mapAttrsToList (backend: path: " --cli-path ${lib.escapeShellArg "${backend}=${path}"}") cfg.cliPaths);
         # An unexpected death requires core quarantine/reconciliation, not auto-replay.
         Restart = "no";
         KillMode = "control-group";
@@ -72,7 +84,11 @@ in {
         ProtectProc = "invisible";
         ProtectKernelTunables = true;
         ProtectKernelModules = true;
-        ProtectControlGroups = true;
+        # Supervisor needs delegation; each command gets a kernel-locked read-only
+        # cgroup mount in nested user/mount namespaces. Never fall back to killpg.
+        Delegate = true;
+        ProtectControlGroups = false;
+        RestrictNamespaces = [ "user" "mnt" ];
         TasksMax = 128;
         MemoryMax = "2G";
       };

@@ -3,7 +3,7 @@ import asyncio
 import os
 import struct
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -19,30 +19,36 @@ from openbot.sandboxes.worker import Worker
 from tests.conftest import build_test_services
 from tests.factories import bot_actor
 from tests.fakes import ScriptedChatModel, ai, call
+from tests.sandbox_fakes import FakeCgroups
 
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux peer-credential worker")
 
 
 @asynccontextmanager
-async def worker_at(tmp_path, controller_uid=None):
+async def worker_at(tmp_path, controller_uid=None, *, leased=True, plugins=(), cli_paths=None):
     home = tmp_path / "home"
     root = home / "workspace"
     root.mkdir(parents=True)
     path = str(tmp_path / "w.sock")
-    worker = Worker("slot", root, home, os.getuid() if controller_uid is None else controller_uid)
+    (home / ".openbot-tmp").mkdir()
+    worker = Worker("slot", root, home, os.getuid() if controller_uid is None else controller_uid,
+                    FakeCgroups(tmp_path / "groups"), plugins=plugins, cli_paths=cli_paths,
+                    _test_without_namespaces=True)
     server = await asyncio.start_unix_server(worker.handle, path=path)
-    async with server:
+    lease = (protocol.run_lease(path, os.getuid(), payload("run"))
+             if leased and controller_uid is None else nullcontext())
+    async with server, lease:
         yield worker, root, path
     # Let a connection's finally block reap its child before the test loop closes.
     for _ in range(100):
-        if not worker.busy:
+        if not worker.operations:
             break
         await asyncio.sleep(0.01)
-    assert not worker.busy
+    assert not worker.operations
 
 
 def payload(operation, args=None, **extra):
-    return {"id": new_id(), "resource": "slot", "operation": operation, "args": args or {}, **extra}
+    return {"id": new_id(), "run_id": "test-run", "resource": "slot", "operation": operation, "args": args or {}, **extra}
 
 
 async def rpc(path, operation, args=None, **extra):
@@ -101,7 +107,7 @@ async def test_protocol_refuses_duplicates_unknown_ops_and_bounds(tmp_path):
         writer.write(struct.pack("!I", protocol.MAX_FRAME + 1))
         await writer.drain()
         response = await protocol.receive(reader)
-        assert response["ok"] is False
+        assert response["type"] == "unknown"
         writer.close()
         await writer.wait_closed()
 
@@ -109,9 +115,8 @@ async def test_protocol_refuses_duplicates_unknown_ops_and_bounds(tmp_path):
 async def test_timeout_does_not_repeat_effect(tmp_path):
     async with worker_at(tmp_path) as (_, root, path):
         request = payload("run_shell", {"command": "echo once >> effect; sleep 20", "timeout": 5})
-        with pytest.raises(protocol.SandboxError):
-            await protocol.request(path, os.getuid(), request)
-        with pytest.raises(protocol.SandboxError):
+        assert "timed out after 5s" in await protocol.request(path, os.getuid(), request)
+        with pytest.raises(protocol.SandboxRejected):
             await protocol.request(path, os.getuid(), request)
         assert (root / "effect").read_text() == "once\n"
 
@@ -149,7 +154,7 @@ async def configure(settings, path, monkeypatch, scripts=None):
 
 
 async def test_internal_loop_crosses_worker_without_host_io_or_global_memory(settings, tmp_path, monkeypatch):
-    async with worker_at(tmp_path) as (_, root, path):
+    async with worker_at(tmp_path, leased=False) as (_, root, path):
         scripts = {"eng": [ai(tool_calls=[call("write_file", path="result", content="isolated"),
                                           call("write_file", path="parallel", content="serialized")]),
                             ai(tool_calls=[call("run_shell", command="pwd")]), ai("Done")]}
@@ -164,9 +169,18 @@ async def test_internal_loop_crosses_worker_without_host_io_or_global_memory(set
         def forbidden(*args, **kwargs):
             raise AssertionError("server accessed sandbox filesystem/global memory")
         monkeypatch.setattr("openbot.runtime.runner.thread_workspace_root", forbidden)
-        monkeypatch.setattr("openbot.runtime.runner.memory.relevant_memories", forbidden)
+        from openbot.runtime import memory
+        await services.store.aput(memory.bot_namespace(bot.id), "global", {"content": "DO-NOT-IMPORT-GLOBAL"})
+        original_memories = memory.relevant_memories
+
+        async def scoped_memories(*args, **kwargs):
+            assert kwargs["namespace"] == memory.sandbox_namespace(bot.id, box.id)
+            return await original_memories(*args, **kwargs)
+        monkeypatch.setattr(memory, "relevant_memories", scoped_memories)
+        monkeypatch.setattr("openbot.runtime.prompt.load_repository_instructions", forbidden)
         monkeypatch.setattr("openbot.runtime.runner.enabled_skills", forbidden)
-        monkeypatch.setattr(services.reflector, "schedule", forbidden)
+        reflected = []
+        monkeypatch.setattr(services.reflector, "schedule", lambda *args, **kwargs: reflected.append(kwargs))
         ScriptedChatModel.seen.clear()
         await services.actors.start()
         try:
@@ -178,22 +192,22 @@ async def test_internal_loop_crosses_worker_without_host_io_or_global_memory(set
                 assert run.status == "completed", run.error
                 assert run.sandbox_id == box.id and run.sandbox_generation == 1
                 intents = (await session.scalars(select(SandboxExecution))).all()
-                assert {i.operation for i in intents} == {"probe", "write_file", "run_shell"}
+                assert {i.operation for i in intents} == {"probe", "prepare", "write_file", "run_shell"}
                 assert all(i.state == "completed" for i in intents)
             assert (root / "result").read_text() == "isolated"
             assert (root / "parallel").read_text() == "serialized"
             assert not (settings.workspace_root / "result").exists()
             assert "DO-NOT-IMPORT" not in str(ScriptedChatModel.seen)
+            assert reflected and reflected[0]["namespace"] == memory.sandbox_namespace(bot.id, box.id)
         finally:
             await services.actors.stop()
             await services.http_client.aclose()
 
 
 @pytest.mark.parametrize("changes", [
-    {"tool_names": ["scratchpad"]}, {"tool_names": ["mcp__tool"]},
+    {"tool_names": ["mcp__tool"]},
     {"tool_names": ["sql_query"]}, {"tool_names": ["create_bot"]},
-    {"provider": "pi"}, {"provider": "codex"}, {"load_repository_instructions": True},
-    {"skill_names": ["private"]}, {"model_settings": {"web_search": True}},
+    {"provider": "pi"}, {"provider": "codex"}, {"model_settings": {"web_search": True}},
 ])
 def test_unsupported_paths_fail_closed(changes):
     with pytest.raises(protocol.SandboxError):

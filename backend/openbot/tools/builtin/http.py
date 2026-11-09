@@ -1,13 +1,14 @@
 import httpx
 from bs4 import BeautifulSoup
-from langchain.tools import tool
+from langchain.tools import ToolRuntime, tool
 
 from openbot.tools.builtin.workspace import cap
+from openbot.tools.context import RunContext
 
 
 @tool
 async def http_request(method: str, url: str, headers: dict[str, str] | None = None,
-                       body: str | None = None) -> str:
+                       body: str | None = None, runtime: ToolRuntime[RunContext] = None) -> str:
     """Make an HTTP request. Returns status, response headers and body (text, capped)."""
     try:
         async with httpx.AsyncClient(timeout=60, follow_redirects=True) as c:
@@ -19,7 +20,7 @@ async def http_request(method: str, url: str, headers: dict[str, str] | None = N
 
 
 @tool
-async def fetch_url(url: str) -> str:
+async def fetch_url(url: str, runtime: ToolRuntime[RunContext] = None) -> str:
     """Fetch a web page and return its readable text content."""
     try:
         async with httpx.AsyncClient(timeout=60, follow_redirects=True) as c:

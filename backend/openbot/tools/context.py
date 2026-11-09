@@ -20,3 +20,5 @@ class RunContext:
     shell_output_cap: int = 4000
     shell_user: str | None = None
     sandbox_id: str | None = None
+    shell_login: bool = True
+    skill_names: list[str] | None = None

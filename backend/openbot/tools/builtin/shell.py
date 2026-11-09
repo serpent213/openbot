@@ -85,7 +85,7 @@ async def run_shell(command: str, runtime: ToolRuntime[RunContext], cwd: str | N
     workdir.mkdir(parents=True, exist_ok=True)
     try:
         proc = await asyncio.create_subprocess_exec(
-            *prefix, shell, "-lc", command, cwd=str(workdir), env=env,
+            *prefix, shell, "-lc" if runtime.context.shell_login else "-c", command, cwd=str(workdir), env=env,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             **group)
     except FileNotFoundError:

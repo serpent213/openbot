@@ -37,6 +37,22 @@ def bot_namespace(bot_id: str) -> tuple[str, ...]:
     return ("bots", bot_id, "memories")
 
 
+def sandbox_namespace(bot_id: str, sandbox_id: str) -> tuple[str, ...]:
+    return ("sandboxes", sandbox_id, "bots", bot_id, "memories")
+
+
+def run_namespace(run) -> tuple[str, ...]:
+    if run.memory_namespace:
+        return tuple(run.memory_namespace)
+    # Pre-migration bound runs must never inherit bot-global data implicitly.
+    return sandbox_namespace(run.actor_id, run.sandbox_id) if run.sandbox_id else bot_namespace(run.actor_id)
+
+
+def scope_rule(namespace) -> str:
+    return (MEMORY_SCOPE_RULE.replace("every thread you work in", "every thread you work in within this sandbox")
+            if namespace and namespace[0] == "sandboxes" else MEMORY_SCOPE_RULE)
+
+
 def thread_namespace(thread_id: str) -> tuple[str, ...]:
     return ("threads", thread_id, "messages")
 
@@ -93,11 +109,11 @@ class ReflectionMemoryStore:
         return _normalize_memory_search_items(items)
 
 
-def memory_tools(bot_id: str, store: BaseStore) -> list[BaseTool]:
-    ns = bot_namespace(bot_id)
+def memory_tools(bot_id: str, store: BaseStore, *, namespace=None) -> list[BaseTool]:
+    ns = tuple(namespace) if namespace is not None else bot_namespace(bot_id)
     return [
         create_manage_memory_tool(ns, store=store, schema=str,
-            instructions=MEMORY_SCOPE_RULE + " Update or delete memories that became wrong."),
+            instructions=scope_rule(ns) + " Update or delete memories that became wrong."),
         create_search_memory_tool(ns, store=store),
     ]
 
@@ -113,8 +129,9 @@ def memory_text(value: object) -> str:
     return str(value)
 
 
-async def relevant_memories(store: BaseStore, bot_id: str, query: str, limit: int = 8) -> list[str]:
-    items = await store.asearch(bot_namespace(bot_id), query=query or None, limit=limit)
+async def relevant_memories(store: BaseStore, bot_id: str, query: str, limit: int = 8, *, namespace=None) -> list[str]:
+    ns = tuple(namespace) if namespace is not None else bot_namespace(bot_id)
+    items = await store.asearch(ns, query=query or None, limit=limit)
     return [memory_text(it.value) for it in items]
 
 
@@ -159,30 +176,31 @@ class MemoryReflector:
     def __init__(self, services, delay: float) -> None:
         self.services = services
         self.delay = delay
-        self._pending: dict[tuple[str, str], tuple[Actor, list[BaseMessage]]] = {}
-        self._timers: dict[tuple[str, str], asyncio.Task] = {}
+        self._pending: dict[tuple, tuple[Actor, list[BaseMessage]]] = {}
+        self._timers: dict[tuple, asyncio.Task] = {}
 
-    def make_manager(self, bot: Actor):
+    def make_manager(self, bot: Actor, *, namespace=None):
         factory = getattr(self.services, "small_model_factory", None) or self.services.model_factory
         model = factory(bot)
-        return create_memory_store_manager(model, namespace=bot_namespace(bot.id),
+        ns = tuple(namespace) if namespace is not None else bot_namespace(bot.id)
+        return create_memory_store_manager(model, namespace=ns,
                                            store=ReflectionMemoryStore(self.services.store),
-                                           instructions=REFLECTION_INSTRUCTIONS,
+                                           instructions=REFLECTION_INSTRUCTIONS.replace(MEMORY_SCOPE_RULE, scope_rule(ns)),
                                            enable_inserts=True, enable_deletes=False)
 
-    def schedule(self, bot: Actor, messages: list[BaseMessage], *, thread_id: str) -> None:
-        key = (bot.id, thread_id)
+    def schedule(self, bot: Actor, messages: list[BaseMessage], *, thread_id: str, namespace=None) -> None:
+        key = (bot.id, thread_id, tuple(namespace) if namespace is not None else None)
         _, existing = self._pending.get(key, (bot, []))
         self._pending[key] = (bot, [*existing, *messages])
         if t := self._timers.pop(key, None):
             t.cancel()
         self._timers[key] = asyncio.create_task(self._later(key))
 
-    async def _later(self, key: tuple[str, str]) -> None:
+    async def _later(self, key: tuple) -> None:
         await asyncio.sleep(self.delay)
         await self._reflect(key)
 
-    async def _reflect(self, key: tuple[str, str]) -> None:
+    async def _reflect(self, key: tuple) -> None:
         self._timers.pop(key, None)
         item = self._pending.pop(key, None)
         if not item:
@@ -190,7 +208,8 @@ class MemoryReflector:
         bot, messages = item
         try:
             try:
-                await self.make_manager(bot).ainvoke(
+                manager = self.make_manager(bot, namespace=key[2]) if key[2] else self.make_manager(bot)
+                await manager.ainvoke(
                     {"messages": messages},
                     config={"recursion_limit": 12, "configurable": {"max_attempts": 2}},
                 )
@@ -201,9 +220,10 @@ class MemoryReflector:
                 model = self.services.model_factory(bot)
                 manager = create_memory_store_manager(
                     model,
-                    namespace=bot_namespace(bot.id),
+                    namespace=key[2] or bot_namespace(bot.id),
                     store=ReflectionMemoryStore(self.services.store),
-                    instructions=REFLECTION_INSTRUCTIONS,
+                    instructions=REFLECTION_INSTRUCTIONS.replace(MEMORY_SCOPE_RULE, scope_rule(key[2])),
+
                     enable_inserts=True,
                     enable_deletes=False,
                 )

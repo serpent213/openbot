@@ -16,7 +16,7 @@ async def providers(services: Services = Depends(get_services)):
     ollama_models = await list_ollama_models(st, getattr(services, "http_client", None))
     # Only a file lookup; the CLI itself runs in cli_agent below, once the editor asks for it.
     cli_agents = [{"id": a.provider, "label": a.label,
-                   "found": not st.sandboxes_enabled and find_executable(a, st) is not None,
+                   "found": None if st.sandboxes_enabled else find_executable(a, st) is not None,
                    "models": list(a.models), "access_hints": a.access_hints,
                    "supports_network_access": a.supports_network_access} for a in adapters(st).values()]
     return {"providers": provider_status(st, ollama_models), "cli_agents": cli_agents,
@@ -24,14 +24,21 @@ async def providers(services: Services = Depends(get_services)):
 
 
 @router.get("/cli/{provider}")
-async def cli_agent(provider: str, services: Services = Depends(get_services)):
+async def cli_agent(provider: str, sandbox_id: str | None = None, services: Services = Depends(get_services)):
     """Where the CLI is, its version and whether it is logged in. The login state is the exit code of
     the CLI's own status command; its output is not passed on."""
-    if services.settings.sandboxes_enabled:
-        raise HTTPException(409, "coding CLI probes are unavailable in sandbox prototype")
     adapter = adapter_for(provider, services.settings)
     if adapter is None:
         raise HTTPException(404, "not a CLI provider")
+    if sandbox_id:
+        from openbot.api.sandboxes import worker_inspect
+        out = await worker_inspect(services, sandbox_id, "cli_probe", {"provider": provider})
+        out["version"] = ".".join(map(str, out["version"])) if out["version"] else None
+        if out["logged_in"] is False:
+            out["problem"] = f"{adapter.label} is not logged in. {adapter.login_hint}".rstrip()
+        return {"id": adapter.provider, "label": adapter.label, **out}
+    if services.settings.sandboxes_enabled:
+        raise HTTPException(409, "select sandbox_id for worker-side coding CLI probes")
     out = {"id": adapter.provider, "label": adapter.label, "path": find_executable(adapter, services.settings),
            "version": None, "logged_in": None, "problem": None}
     if out["path"] is None:

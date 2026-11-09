@@ -124,6 +124,7 @@ class Sandbox(TimestampMixin, Base):
     resource: Mapped[str] = mapped_column(String(120), nullable=False)
     resource_key: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
     resource_spec: Mapped[dict] = mapped_column(JSON, nullable=False)
+    share_global_memory: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     generation: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     state: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
     active_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -222,6 +223,14 @@ class BotScratchpad(TimestampMixin, Base):
     content: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
 
+class SandboxScratchpad(TimestampMixin, Base):
+    """Bot notes shared only by threads in the same sandbox, never by memory opt-in."""
+    __tablename__ = "sandbox_scratchpads"
+    sandbox_id: Mapped[str] = mapped_column(ForeignKey("sandboxes.id"), primary_key=True)
+    actor_id: Mapped[str] = mapped_column(ForeignKey("actors.id", ondelete="CASCADE"), primary_key=True)
+    content: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+
 class InboxItem(Base):
     __tablename__ = "inbox_items"
     __table_args__ = (Index("ix_inbox_actor_status_created", "actor_id", "status", "created_at"),)
@@ -244,6 +253,7 @@ class Run(Base):
     __table_args__ = (Index("ix_runs_actor_thread_status", "actor_id", "thread_id", "status"),)
     sandbox_id: Mapped[str | None] = mapped_column(ForeignKey("sandboxes.id"), nullable=True)
     sandbox_generation: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    memory_namespace: Mapped[list | None] = mapped_column(JSON, nullable=True)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     actor_id: Mapped[str] = mapped_column(String(36), ForeignKey("actors.id", ondelete="CASCADE"), nullable=False)
     thread_id: Mapped[str] = mapped_column(String(36), ForeignKey("threads.id", ondelete="CASCADE"), nullable=False)

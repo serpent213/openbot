@@ -204,6 +204,7 @@ def build_system_prompt_parts(
     scratchpad: str | None = None,
     skills: list[SkillInfo] | None = None,
     deferred_tools: list[str] | None = None,
+    repository_instructions: str | None = None,
 ) -> tuple[str, str]:
     roster = (
         "\n".join(
@@ -264,9 +265,10 @@ def build_system_prompt_parts(
         dynamic += f"\n\n{todo_list_section(todos)}"
     if skills:
         dynamic += f"\n\n{skills_section(skills)}"
-    repository_instructions = load_repository_instructions(
-        workspace_root, enabled=bot.bot.load_repository_instructions, start_directory=workspace_root
-    )
+    if repository_instructions is None:
+        repository_instructions = load_repository_instructions(
+            workspace_root, enabled=bot.bot.load_repository_instructions, start_directory=workspace_root
+        )
     if repository_instructions:
         dynamic += f"\n\n# Repository instructions\n{repository_instructions}"
     return stable, dynamic

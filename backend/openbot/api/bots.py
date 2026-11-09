@@ -61,7 +61,10 @@ def _validate_tools(services: Services, tool_names: list[str], approval_tools: l
         raise HTTPException(422, f"approval_tools must be a subset of tool_names: {extra}")
     if skill_names:
         if services.settings.sandboxes_enabled:
-            raise HTTPException(422, "skills are unavailable in sandbox prototype")
+            if any(not name.strip() or len(name) > 120 or any(ord(c) < 32 for c in name) for name in skill_names):
+                raise HTTPException(422, "invalid skill identifiers/names")
+            # Existence is worker-specific; never discover skills in the controller workspace.
+            return
         known = known_skill_names(services)
         unknown = [s for s in skill_names if s.lower() not in known]
         if unknown:

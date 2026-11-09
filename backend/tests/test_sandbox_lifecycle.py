@@ -40,6 +40,8 @@ async def seed(services, box):
 async def test_run_serialization_and_snapshot_fencing(settings, tmp_path, monkeypatch):
     services, box = await configure(settings, str(tmp_path / "absent"), monkeypatch)
     monkeypatch.setattr(protocol, "request", fake_response)
+    from tests.sandbox_fakes import fake_lease
+    monkeypatch.setattr(protocol, "run_lease", fake_lease)
     bot, thread, first = await seed(services, box)
     async with services.session_factory() as session:
         second = Run(actor_id=bot.id, thread_id=thread.id, status="queued",
@@ -157,8 +159,8 @@ async def test_disconnect_cancels_worker_child(settings, tmp_path, monkeypatch):
         with pytest.raises(asyncio.CancelledError):
             await task
         for _ in range(100):
-            if not worker.busy:
+            if not worker.operations:
                 break
             await asyncio.sleep(0.02)
-        assert not worker.busy
+        assert not worker.operations
         assert not (root / "after").exists()

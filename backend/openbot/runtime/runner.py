@@ -5,6 +5,7 @@ import json
 import logging
 import time
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -636,8 +637,8 @@ class Runner:
             )
             # Removing the tool also excludes its cross-thread notes from this run.
             scratchpad = (
-                await load_scratchpad(session, bot.id)
-                if not thread.sandbox_id and "scratchpad" in bot.bot.tool_names
+                await load_scratchpad(session, bot.id, thread.sandbox_id)
+                if "scratchpad" in bot.bot.tool_names
                 else None
             )
         by_id = {a.id: a for a in all_actors}
@@ -683,27 +684,32 @@ class Runner:
         older += max(0, total - len(rows))
         query = "\n".join(m.content for m in triggers)
         memories = (
-            await memory.relevant_memories(self.s.store, bot.id, query)
-            if self.s.store is not None and not thread.sandbox_id
+            await memory.relevant_memories(self.s.store, bot.id, query, namespace=memory.run_namespace(run))
+            if self.s.store is not None
             else []
         )
-        workspace_root = (Path("/workspace") if thread.sandbox_id else
-                          thread_workspace_root(st.workspace_root, thread.working_directory))
-        # Skills the bot has enabled: only ids/names/descriptions go into the prompt;
-        # the load_skill tool fetches the body on demand.
-        skills = (
-            enabled_skills(bot.bot, workspace_root, self.s.settings)
-            if "load_skill" in bot.bot.tool_names
-            else []
-        )
+        repository_instructions = None
+        if thread.sandbox_id:
+            from openbot.sandboxes.runtime import execute
+            from openbot.skills import SkillInfo
+            prepared = await execute(self.s, thread.sandbox_id, run.id, "prepare", {
+                "instructions": bot.bot.load_repository_instructions,
+                "skill_names": bot.bot.skill_names if "load_skill" in bot.bot.tool_names else [],
+            }, thread.working_directory)
+            workspace_root = Path(prepared["cwd"])  # metadata only; never stat/open on controller
+            repository_instructions = prepared["instructions"]
+            skills = [SkillInfo(**skill) for skill in prepared["skills"]]
+        else:
+            workspace_root = thread_workspace_root(st.workspace_root, thread.working_directory)
+            skills = (enabled_skills(bot.bot, workspace_root, self.s.settings)
+                      if "load_skill" in bot.bot.tool_names else [])
         deferred = set(self.deferred_tool_names(bot))
         stable_prompt, dynamic_prompt = build_system_prompt_parts(
             bot=bot,
             all_bots=list(all_actors),
             participants=participants,
             memories=memories,
-            workspace_root=("sandbox workspace (use relative paths; shell pwd reports the actual path)"
-                            if thread.sandbox_id else str(workspace_root)),
+            workspace_root=str(workspace_root),
             older_count=older,
             # Only tools that will actually be bound: an MCP server that is down
             # must not be advertised, or the model calls a tool it does not have.
@@ -718,7 +724,13 @@ class Runner:
             scratchpad=scratchpad,
             skills=skills,
             deferred_tools=[n for n in bot.bot.tool_names if n in deferred],
+            repository_instructions=repository_instructions,
         )
+        if thread.sandbox_id:
+            scope = "bot-global (explicitly enabled by the operator)" if memory.run_namespace(run)[0] == "bots" else "this sandbox only"
+            dynamic_prompt += (f"\n\n# Persistent state boundary\nLong-term memory: {scope}. "
+                               "Scratchpad: this bot in this sandbox only, regardless of memory sharing. "
+                               "These boundaries override any generic cross-thread sharing instructions.")
         prompt = SystemMessage(
             content=[
                 {"type": "text", "text": stable_prompt},
@@ -846,11 +858,15 @@ class Runner:
         ]
 
     def _build_agent(self, bot: Actor, system_prompt: str, triggers: tuple[int, int] | None = None,
-                     sandbox_id: str | None = None):
+                     sandbox_id: str | None = None, memory_namespace=None):
         p = bot.bot
         if sandbox_id:
             from openbot.sandboxes.runtime import tools as sandbox_tools
-            tools = [*sandbox_tools(p.tool_names), *CORE_TOOLS]
+            # Scheduling and memory are trusted, scoped orchestration, not worker I/O.
+            tools = [*sandbox_tools([n for n in p.tool_names if n not in {t.name for t in SCHEDULING_TOOLS}]),
+                     *CORE_TOOLS, *SCHEDULING_TOOLS,
+                     *memory.memory_tools(bot.id, self.s.store,
+                         namespace=memory_namespace or memory.sandbox_namespace(bot.id, sandbox_id))]
         else:
             tools = [
                 *self.s.registry.resolve(list(p.tool_names)),
@@ -1040,7 +1056,9 @@ class Runner:
             return
         try:
             async with binding(self.s, run, thread, bot):
-                await self._execute(run_id, resume)
+                permit = self.s.actors.sem if thread.sandbox_id and self.s.actors else nullcontext()
+                async with permit:
+                    await self._execute(run_id, resume)
         except asyncio.CancelledError:
             await self._set_status(run_id, "cancelled")
             raise
@@ -1087,7 +1105,7 @@ class Runner:
         try:
             if thread.sandbox_id:
                 from openbot.sandboxes.runtime import validate_bot
-                validate_bot(bot)
+                validate_bot(bot, self.s.settings)
             system_prompt, inputs, hop = await self._prepare(bot, thread, run)
             workspace_root = (Path("/workspace") if thread.sandbox_id else thread_workspace_root(
                 self.s.settings.workspace_root, thread.working_directory
@@ -1158,8 +1176,10 @@ class Runner:
                 shell_output_cap=self.s.settings.shell_output_cap,
                 shell_user=self.s.settings.shell_user,
                 sandbox_id=thread.sandbox_id,
+                skill_names=bot.bot.skill_names if thread.sandbox_id else None,
             )
-            agent = self._build_agent(bot, system_prompt, triggers, sandbox_id=thread.sandbox_id)
+            agent = self._build_agent(bot, system_prompt, triggers, sandbox_id=thread.sandbox_id,
+                                      memory_namespace=memory.run_namespace(run))
             # The model-call limit is the real cap; the graph's recursion limit only has to be high enough
             # that the limit middleware ends the run first, and is derived from the graph so adding a
             # middleware hook (each is a node every turn traverses) can never make it the binding limit.
@@ -1228,12 +1248,13 @@ class Runner:
                 usage_line,
                 ls_id,
             )
-            if not thread.sandbox_id and bot.bot.memory_enabled and self.s.reflector is not None:
+            if bot.bot.memory_enabled and self.s.reflector is not None:
                 # The run is already complete and its reply posted; reflection must never undo that.
                 try:
                     state = await agent.aget_state(config)
                     self.s.reflector.schedule(
-                        bot, list(state.values.get("messages", [])), thread_id=thread.id
+                        bot, list(state.values.get("messages", [])), thread_id=thread.id,
+                        **({"namespace": memory.run_namespace(run)} if thread.sandbox_id else {}),
                     )
                 except Exception:
                     log.exception("could not schedule memory reflection for run %s", run.id)

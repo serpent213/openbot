@@ -15,7 +15,7 @@ from typing import Literal
 from langchain.tools import ToolRuntime, tool
 from sqlalchemy import select
 
-from openbot.db.models import BotScratchpad
+from openbot.db.models import BotScratchpad, SandboxScratchpad
 from openbot.tools.context import RunContext
 
 MAX_SCRATCHPAD_CHARS = 4000
@@ -85,15 +85,16 @@ def scratchpad_section(content: str) -> str:
     )
 
 
-async def load_scratchpad(session, actor_id: str) -> str:
-    """The bot's saved scratchpad; empty when it has none."""
-    row = (
-        await session.execute(
-            select(BotScratchpad).where(
-                BotScratchpad.actor_id == actor_id,
-            )
-        )
-    ).scalar_one_or_none()
+def scratchpad_query(actor_id, sandbox_id=None):
+    if sandbox_id:
+        return select(SandboxScratchpad).where(SandboxScratchpad.actor_id == actor_id,
+                                               SandboxScratchpad.sandbox_id == sandbox_id)
+    return select(BotScratchpad).where(BotScratchpad.actor_id == actor_id)
+
+
+async def load_scratchpad(session, actor_id: str, sandbox_id: str | None = None) -> str:
+    """Sandbox notes never inherit the legacy global scratchpad, even with shared memory."""
+    row = (await session.execute(scratchpad_query(actor_id, sandbox_id))).scalar_one_or_none()
     return row.content if row is not None else ""
 
 
@@ -115,16 +116,10 @@ async def scratchpad(
         )
     if action == "read":
         async with ctx.services.session_factory() as session:
-            current = await load_scratchpad(session, ctx.actor_id)
+            current = await load_scratchpad(session, ctx.actor_id, ctx.sandbox_id)
         return current or "Scratchpad is empty."
     async with ctx.services.session_factory() as session:
-        row = (
-            await session.execute(
-                select(BotScratchpad).where(
-                    BotScratchpad.actor_id == ctx.actor_id,
-                )
-            )
-        ).scalar_one_or_none()
+        row = (await session.execute(scratchpad_query(ctx.actor_id, ctx.sandbox_id))).scalar_one_or_none()
         current = row.content if row is not None else ""
         if action == "clear":
             new = ""
@@ -150,7 +145,8 @@ async def scratchpad(
                 "Nothing to save; do not repeat this call."
             )
         if row is None:
-            session.add(BotScratchpad(actor_id=ctx.actor_id, content=new))
+            session.add(SandboxScratchpad(sandbox_id=ctx.sandbox_id, actor_id=ctx.actor_id, content=new)
+                        if ctx.sandbox_id else BotScratchpad(actor_id=ctx.actor_id, content=new))
         else:
             row.content = new
         await session.commit()

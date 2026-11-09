@@ -380,9 +380,11 @@ For how these pieces fit together inside the backend, see [docs/architecture.md]
 ## Optional sandbox prototype
 
 An opt-in Linux prototype adds persistent sandbox/thread bindings and authenticated
-local workers for a limited set of internal-agent shell, file and HTTP tools.
-Unsupported paths (including coding CLIs, plugin/MCP tools and global bot memory)
-fail closed or are disabled. Legacy single-account mode remains the default.
+local workers for built-in shell, file and HTTP tools and streamed coding-CLI
+adapters, including installed Pi. Parallel operations have separate cleanup groups;
+memory and scratchpads are sandbox-scoped, with explicit operator opt-in to global
+memory. Unadapted server plugin/MCP paths remain fail-closed. Legacy single-account
+mode remains the default.
 This is **not completed isolation**: deployment-specific filesystem/network policy
 and a distinct-UID pilot are still required. See [capabilities, operator API and
 pilot checklist](docs/sandboxes.md) before enabling it. No automatic deployment,

@@ -2,18 +2,26 @@
 
 Date: 2026-11-08
 
-Status: implementation authorized; trusted-server/worker split confirmed. A first
-opt-in execution slice is implemented on `feat/sandboxes`, without deployment or
+Status: implementation authorized; trusted-server/worker split confirmed. The
+opt-in execution prototype is implemented on `feat/sandboxes`, without deployment or
 live account/service/firewall changes. This is not completed isolation. See
 [the prototype capability matrix and pilot checklist](docs/sandboxes.md).
 
-Current slice: durable sandbox/thread/run bindings, preprovisioned Linux worker
-inventory, authenticated Unix-socket execution for selected internal-agent tools,
-execution intents and quarantine without recycling. Coding CLIs, plugin/MCP tools,
-repository/skill discovery, global memory/scratchpad and directory browsing are
-unavailable in bound runs. The operator API exists; sandbox GUI and site network
-policy do not. Cross-UID/systemd isolation still requires an administrator-assisted
-pilot with fake secrets. Unprivileged tests do not establish an OS security boundary.
+Current slice: durable sandbox/thread/run bindings, authenticated Linux worker RPC,
+known-error versus uncertain-outcome classification, sandbox-before-global admission,
+parallel built-in tool operations, worker-side repository/skill discovery and streamed
+coding adapters (including installed Pi). Memory retrieval/tools/reflection and
+scratchpads are scoped; operator-controlled global memory sharing defaults false.
+Worker CLI probes and directory/skill browsing have API support. Unadapted server
+plugin/MCP tools remain refused. No recycling, management GUI or site network policy.
+
+Reliable cleanup now requires delegated cgroup v2 and nested user/mount namespaces:
+operation cgroups plus a verified kernel-locked read-only cgroup mount prevent
+commands from migrating out; a run lease handles controller loss. Missing prerequisites
+refuse execution, not fall back to process groups. The operator must validate this
+on the pinned systemd/kernel/LXC stack before the disposable pilot. Cross-UID isolation
+and real Pi login/continuation remain live-pilot work, not claims from the same-UID,
+fake-cgroup/fake-CLI test suite.
 
 ## Objective and agreed boundaries
 
@@ -67,10 +75,12 @@ Relevant entry points:
   server and affects only this path; it is not the proposed architecture.
 - `backend/openbot/tools/builtin/files.py`, `search.py`, `workspace.py`: file
   access, subprocess helpers, path handling and directory browsing.
-- `backend/openbot/tools/builtin/http.py`: HTTP currently runs inside the server.
+- `backend/openbot/tools/builtin/http.py`: shared HTTP implementations, routed to
+  workers for bound runs; legacy local behavior is retained.
 - `backend/openbot/runtime/cli_agents/{base,run}.py`: CLI launches, environment
   filtering, temporary prompt files and session reuse.
-- `backend/openbot/runtime/memory.py`: bot memory currently keyed by bot identity.
+- `backend/openbot/runtime/memory.py`: legacy bot memory plus sandbox namespaces and
+  scope-aware reflection; per-run scope snapshots prevent policy mixing.
 - `backend/openbot/plugin_api.py`: trusted in-process plugin API 1.3, currently
   exposing tools, coding backends, commands, routes and lifecycle hooks.
 - `backend/openbot/api/{threads,bots,workspace}.py`: configuration and UI-facing APIs.
@@ -203,7 +213,9 @@ Generate `openbot-sbx1..16`, private primary groups, stable UID/GID assignments,
 locked login accounts, private homes and worker units. Select a collision-free
 UID/GID range compatible with the LXC mapping. Do not reuse Nix build users or
 give sandbox accounts sudo, Docker access, broad supplementary groups or Nix
-trusted-user status. Ordinary untrusted Nix-daemon access may be needed for devenv.
+trusted-user status. Ordinary untrusted Nix-daemon access may be needed for devenv,
+but builders/fetchers execute outside the operation cgroup and can bypass user-based
+network policy; deny or explicitly mediate this before admitting agent workloads.
 
 The home parent is root-owned, with each child home owned by its sandbox account
 and mode 0700. A configurable shared parent is not a shared permission boundary.
@@ -268,12 +280,19 @@ sudo, firewall command strings or application-generated NixOS activation.
 
 ## Memory, plugins and delegation
 
-The same bot may work in different sandboxes. Scope automatic memory retrieval,
-reflection, scratchpad and CLI-session reuse by sandbox as well as bot/thread;
-preserve legacy namespaces for local mode without implicitly importing them. The
-first slice disables these features in bound runs instead of partially scoping
-them. It also refuses scheduling tools, global profile mutation and unadapted
-plugin/MCP tools. These refusals apply before model/prompt preparation.
+The same bot may work in different sandboxes. Retrieval, memory tools and reflection
+(internal and CLI runs, including reflection fallback) use sandbox + bot scope.
+`share_global_memory` defaults false; the operator may select the existing bot-global
+namespace for newly created runs. Run snapshots and reflection batch keys retain the
+chosen scope. Scratchpads remain independently sandbox + bot scoped even when global
+memory sharing is enabled. Legacy local namespaces are unchanged and not imported.
+
+Native CLI sessions additionally match sandbox ID/generation, bot, thread, backend,
+worker-resolved cwd and memory namespace. Native login/session files persist only
+in the private worker home. Temporary prompts/probes execute there, not on the server.
+Scheduling remains trusted orchestration: creation is current-thread-only, listing
+is sandbox-scoped. Global profile mutation and unadapted server plugin/MCP tools
+remain refused before model/prompt preparation.
 
 Keep the thread's sandbox fixed while jobs run. A sandbox change must not resume
 an old CLI session or automatically carry private state across the boundary.
@@ -296,13 +315,18 @@ global sharing is an intentional exception that should be visible in configurati
 1. Implemented first slice: durable records, immutable thread bindings, run snapshots,
    authenticated Linux worker RPC, allowlisted internal-agent execution and durable
    intent/quarantine. Legacy single-account mode remains available when disabled.
-2. Before any bound run, unsupported state/execution paths are explicitly refused or
-   disabled. Do not postpone these guards until after enabling workers.
-3. Next: validate actual Unix identities, systemd cgroups, filesystem masks, protected
-   internal services and Nix-mediated paths in disposable infrastructure with fake
-   secrets. The Nix pool defaults to 16 but deployment/activation is not authorized.
-4. Add coding-CLI worker execution, native sandbox-home login/session lifecycle and
-   safely scoped memory/scratchpad and required plugins as separate reviewed slices.
+2. Implemented follow-up: known rejections/tool errors do not quarantine; uncertain
+   operations still cannot replay. Sandbox admission precedes global permits.
+   Parallel tools reuse existing implementations/timeouts/output behavior. Worker
+   CLI streaming/probes/session scope, project discovery and scoped memory/scratchpads
+   are implemented; unadapted server plugins remain fail-closed.
+3. Next: administrator validates delegated cgroup-v2 cleanup, nested namespace/mount
+   protection, actual UIDs, filesystem masks, protected services and Nix-mediated
+   paths in disposable infrastructure. The Nix pool defaults to 16; no deployment,
+   privilege/sysctl/firewall changes or activation are authorized here.
+4. Run the real separate-UID and native Pi continuation/login pilot after prerequisite
+   agreement. Automated fake-CLI adapter tests are not that pilot. Adapt additional
+   server plugins only as separately reviewed execution/scoping work.
 5. Add the operator GUI and safe cleanup/reconciliation procedures. Retirement now
    quarantines without reuse; safe pool shrink, automatic deletion and recycling are
    unavailable. No Podman or backend-created accounts are implemented.
@@ -319,6 +343,12 @@ Focused checks, not exhaustive security certification:
   the authorized one, including direct internal-address attempts.
 - Concurrent allocation cannot assign one resource to two unrelated sandboxes.
 - Restart retains assignments; exhaustion or missing isolation fails clearly.
+- Missing cwd, unsupported URL scheme and ordinary tool/CLI errors leave the binding
+  usable; lost replies/unknown effects quarantine and do not replay.
+- A1 active + A2 waiting for A cannot block B1 with an available global permit.
+- Parallel shell barriers complete; cancelling one operation leaves its sibling
+  alive. `setsid`, double forks and attempted cgroup migration cannot outlive their
+  operation/run; control-connection loss triggers whole-run cleanup.
 - Retirement stops descendants and does not expose old data or permissions on reuse.
 - Agent-created bots, delegation, plugin/MCP tools and administrative API calls do
   not bypass the sandbox binding. Memory and CLI-session reuse stay scoped.
@@ -326,7 +356,7 @@ Focused checks, not exhaustive security certification:
 ## Instructions for the next session
 
 Start in this repository and read this document plus repository instructions.
-The loop/worker split and first-slice implementation are authorized. The user
+The loop/worker split and code/test/documentation follow-up are authorized. The user
 prefers minimal dependencies and surgical patches. There is no authorization to
 consolidate containers, deploy, change live accounts/firewalls or move production
 data. See `docs/sandboxes.md` for supported paths and exact remaining pilot work.
