@@ -35,6 +35,7 @@ export default function SettingsPage() {
       <PageTitle>Settings</PageTitle>
 
       <RuntimeSettings />
+      <SandboxSettings />
       <PluginSettings />
 
       <DatabaseLocationCard />
@@ -99,6 +100,38 @@ export default function SettingsPage() {
   );
 }
 
+
+function SandboxSettings() {
+  const qc = useQueryClient();
+  const boxes = useQuery({ queryKey: ["sandboxes"], queryFn: Api.listSandboxes });
+  const save = useSaveMutation({
+    mutationFn: ({ id, share }: { id: string; share: boolean }) => Api.updateSandbox(id, { share_global_memory: share }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sandboxes"] }),
+  }, "Memory sharing saved");
+  if (!boxes.error && !boxes.data?.enabled) return null;
+  return (
+    <Card className="space-y-3">
+      <SectionTitle>Sandbox memory</SectionTitle>
+      <Hint>Off keeps each bot’s long-term memory within this sandbox. On lets bots use their bot-global memories across sandboxes that opt in. This does not change each bot’s memory setting.</Hint>
+      <Hint>Changes apply to new runs. Existing conversations retain their history, and scratchpads stay separate.</Hint>
+      <ErrorText error={boxes.error ?? save.error} />
+      <ul className="divide-y divide-line text-[13px]">
+        {boxes.data?.sandboxes.map((box) => (
+          <li key={box.id} className="space-y-2 py-2">
+            <div className="flex items-center gap-2"><span>{box.name}</span><Badge>{box.state}</Badge></div>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" className="accent-accent" aria-label={`Share bot-global memory for ${box.name}`}
+                checked={box.share_global_memory} disabled={save.isPending}
+                onChange={(event) => save.mutate({ id: box.id, share: event.target.checked })} />
+              Share bot-global memory
+            </label>
+          </li>
+        ))}
+      </ul>
+      {boxes.data?.sandboxes.length === 0 && <Hint>No sandboxes allocated yet.</Hint>}
+    </Card>
+  );
+}
 
 function ToolsCard({ tools, openGroups, setOpenGroups }: { tools: ReturnType<typeof useQuery<{ tools: import("../api/types").ToolInfo[]; errors: { file: string; error: string }[] }>>; openGroups: Record<string, boolean>; setOpenGroups: React.Dispatch<React.SetStateAction<Record<string, boolean>>> }) {
   const grouped = groupTools(tools.data?.tools ?? []);

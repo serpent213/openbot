@@ -30,6 +30,7 @@ function saveButtonFor(node: Element): HTMLButtonElement {
 }
 
 beforeEach(() => {
+  vi.spyOn(Api, "listSandboxes").mockResolvedValue({ enabled: false, sandboxes: [] });
   vi.spyOn(Api, "listPlugins").mockResolvedValue([]);
   qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   vi.spyOn(Api, "getSettings").mockResolvedValue(settings);
@@ -45,6 +46,26 @@ beforeEach(() => {
   el = document.createElement("div"); document.body.append(el); root = createRoot(el);
 });
 afterEach(async () => { await act(async () => root.unmount()); el.remove(); qc.clear(); vi.restoreAllMocks(); });
+
+it("only changes sandbox memory sharing after the server saves it", async () => {
+  let box = { id: "sandbox-a", name: "Development", resource: "slot1", state: "active", share_global_memory: false };
+  vi.mocked(Api.listSandboxes).mockImplementation(async () => ({ enabled: true, sandboxes: [box] }));
+  const update = vi.spyOn(Api, "updateSandbox").mockRejectedValueOnce(new Error("Save refused"))
+    .mockImplementation(async (_id, values) => (box = { ...box, ...values }));
+  await act(async () => root.render(<QueryClientProvider client={qc}><MemoryRouter><SettingsPage /></MemoryRouter></QueryClientProvider>));
+  const toggle = () => el.querySelector<HTMLInputElement>('input[aria-label="Share bot-global memory for Development"]')!;
+  await until(() => !!toggle());
+  expect(toggle().checked).toBe(false);
+  await act(async () => toggle().click());
+  await until(() => el.textContent!.includes("Save refused"));
+  expect(toggle().checked).toBe(false);
+  await act(async () => toggle().click());
+  await until(() => toggle().checked);
+  expect(update).toHaveBeenLastCalledWith("sandbox-a", { share_global_memory: true });
+  await act(async () => toggle().click());
+  await until(() => !toggle().checked);
+  expect(update).toHaveBeenLastCalledWith("sandbox-a", { share_global_memory: false });
+});
 
 it("renders the default bot model as an OpenRouter catalog picker and saves the picked value", async () => {
   const patch = vi.spyOn(Api, "patchSettings").mockImplementation(async (updates) => settings.map((s) => (s.key in updates ? { ...s, value: updates[s.key], overridden: true } : s)));

@@ -5,6 +5,7 @@ export interface ScheduledMessage { id: string; thread_id: string; content: stri
 
 export interface AttachmentIn { url: string; name?: string; }
 import { ApiError, backendUnavailableEvent, isBackendUnavailable } from "./errors";
+import type { Sandbox, SandboxInventory } from "./types";
 
 export { ApiError } from "./errors";
 
@@ -37,6 +38,8 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown;
 }
 
 export const Api = {
+  listSandboxes: () => api<SandboxInventory>("/sandboxes"),
+  updateSandbox: (id: string, body: { share_global_memory: boolean }) => api<Sandbox>(`/sandboxes/${encodeURIComponent(id)}`, { method: "PATCH", json: body }),
   listPlugins: () => api<{ id: string; version: string; settings_scopes: string[] }[]>("/plugins"),
   listBots: () => api<Bot[]>("/bots"),
   listBotCatalog: () => api<BotCatalogEntry[]>("/bots/catalog"),

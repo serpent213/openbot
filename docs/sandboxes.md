@@ -20,7 +20,8 @@ No additional Python dependencies, broker, root helper or automatic deployment.
 | Bot roster / instructions / installed server plugins / operator UI | Trusted shared configuration, not a multi-tenant UI authorization boundary |
 | Worker CLI user extensions/MCP | Governed by the selected CLI adapter/permission mode; execute inside its worker operation, not as server plugins |
 | Unadapted server plugin/MCP tools, bot creation/profile mutation, hosted web tools | Explicitly refused; never silently executed on the server |
-| Operator management GUI / public sandbox backend registration / Podman / recycling | Deferred |
+| Operator GUI | Settings exposes the per-sandbox global-memory switch; allocation and lifecycle management still use the operator API |
+| Public sandbox backend registration / Podman / recycling | Deferred |
 
 Coding adapters must be installed/enabled in **both** controller and worker. The
 worker reuses `CliAdapter`, parsing, timeout and turn/session behavior; it does not
@@ -140,7 +141,9 @@ when explicitly shared, the unchanged `("bots", bot_id, "memories")`. Reflection
 batches include their namespace, including fallback-model reflection. CLI reflection
 still requires a configured server-side chat provider, as in legacy mode. Scratchpads
 have a separate `(sandbox_id, actor_id)` table and are **never** switched to the
-legacy global scratchpad by the memory flag. Existing global memory/scratchpad UI
+legacy global scratchpad by the memory flag. Settings → Sandbox memory exposes
+the per-sandbox sharing switch; it does not change each bot's memory setting.
+Existing global memory/scratchpad UI
 views remain global; scoped management UI is deferred.
 
 CLI session events include sandbox ID, binding generation and memory namespace;

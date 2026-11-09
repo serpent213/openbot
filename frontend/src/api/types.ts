@@ -1,4 +1,6 @@
 export type ActorKind = "bot" | "human" | "external" | "system";
+export interface Sandbox { id: string; name: string; resource: string; state: string; share_global_memory: boolean; }
+export interface SandboxInventory { enabled: boolean; sandboxes: Sandbox[]; }
 export interface Actor { id: string; kind: ActorKind; handle: string; name: string; description: string; enabled: boolean; webhook_url: string | null; created_at: string; updated_at: string; }
 export interface BotCatalogEntry { id: string; handle: string; name: string; description: string; icon: string; instruction_file: string; tool_names: string[]; approval_tools: string[]; model_settings: Record<string, unknown>; }
 export interface Bot { id: string; handle: string; name: string; description: string; icon: string; enabled: boolean; active: boolean; instructions: string; provider: string; model: string; model_settings: Record<string, unknown>; tool_names: string[]; approval_tools: string[]; skill_names: string[]; memory_enabled: boolean; model_calls?: number; prompt_tokens?: number; completion_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number; reasoning_tokens?: number; cost_usd?: number; created_at: string; updated_at: string; }

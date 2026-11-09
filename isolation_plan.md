@@ -13,7 +13,8 @@ parallel built-in tool operations, worker-side repository/skill discovery and st
 coding adapters (including installed Pi). Memory retrieval/tools/reflection and
 scratchpads are scoped; operator-controlled global memory sharing defaults false.
 Worker CLI probes and directory/skill browsing have API support. Unadapted server
-plugin/MCP tools remain refused. No recycling, management GUI or site network policy.
+plugin/MCP tools remain refused. Settings provides a global-memory sharing switch;
+allocation/recycling management GUI and site network policy remain separate work.
 
 Reliable cleanup now requires delegated cgroup v2 and nested user/mount namespaces:
 operation cgroups plus a verified kernel-locked read-only cgroup mount prevent
