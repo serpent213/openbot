@@ -34,6 +34,7 @@ from openbot.api import commands as commands_api
 from openbot.api import mcp as mcp_api
 from openbot.api import models as models_api
 from openbot.api import plugin_settings as plugin_settings_api
+from openbot.api import sandboxes as sandboxes_api
 from openbot.api import settings as settings_api
 from openbot.api import setup as setup_api
 from openbot.api import workspace as workspace_api
@@ -307,7 +308,8 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
     core_routers = (actors.router, bots.router, threads.router, messages.router, inbox.router, runs.router, tools.router,
               providers.router, models_api.router, events.router, settings_api.router, mcp_api.router, setup_api.router,
-              workspace_api.router, activity_api.router, scheduled.router, plugin_settings_api.router, commands_api.router)
+              workspace_api.router, activity_api.router, scheduled.router, plugin_settings_api.router, commands_api.router,
+              sandboxes_api.router)
     for r in core_routers:
         api.include_router(r)
     reserved = {r.prefix.split("/")[1] for r in core_routers if r.prefix} | {"plugins", "health", "channels"}

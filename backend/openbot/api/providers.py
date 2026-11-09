@@ -15,7 +15,8 @@ async def providers(services: Services = Depends(get_services)):
     emb_provider = st.embedding_model.split(":", 1)[0]
     ollama_models = await list_ollama_models(st, getattr(services, "http_client", None))
     # Only a file lookup; the CLI itself runs in cli_agent below, once the editor asks for it.
-    cli_agents = [{"id": a.provider, "label": a.label, "found": find_executable(a, st) is not None,
+    cli_agents = [{"id": a.provider, "label": a.label,
+                   "found": not st.sandboxes_enabled and find_executable(a, st) is not None,
                    "models": list(a.models), "access_hints": a.access_hints,
                    "supports_network_access": a.supports_network_access} for a in adapters(st).values()]
     return {"providers": provider_status(st, ollama_models), "cli_agents": cli_agents,
@@ -26,6 +27,8 @@ async def providers(services: Services = Depends(get_services)):
 async def cli_agent(provider: str, services: Services = Depends(get_services)):
     """Where the CLI is, its version and whether it is logged in. The login state is the exit code of
     the CLI's own status command; its output is not passed on."""
+    if services.settings.sandboxes_enabled:
+        raise HTTPException(409, "coding CLI probes are unavailable in sandbox prototype")
     adapter = adapter_for(provider, services.settings)
     if adapter is None:
         raise HTTPException(404, "not a CLI provider")

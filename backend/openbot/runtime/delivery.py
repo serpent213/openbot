@@ -14,6 +14,7 @@ from openbot.db.models import (
     InboxItem,
     Message,
     Run,
+    Sandbox,
     Thread,
     ThreadParticipant,
     now_local,
@@ -106,7 +107,8 @@ def _system_notice(thread_id: str, content: str, *, created_at, mentions: list[s
 async def create_thread(services, session: AsyncSession, *, title: str, handles: list[str], created_by: Actor | None,
                         external_ref: str | None = None, include_human: bool = True,
                         default_bot_handle: str | None = None, working_directory: str | None = None,
-                        kind: str = "chat", commit: bool = True) -> Thread:
+                        kind: str = "chat", commit: bool = True,
+                        sandbox_id: str | None = None) -> Thread:
     by_handle = await _actors_by_handle(session)
     unknown = [h for h in handles if h not in by_handle]
     if unknown:
@@ -117,8 +119,25 @@ async def create_thread(services, session: AsyncSession, *, title: str, handles:
         raise ValueError(f"default bot must be a bot: {effective_default}")
     if default_bot_handle is not None and default_bot is None:
         raise ValueError(f"unknown default bot: {effective_default}")
+    if services.settings.sandboxes_enabled:
+        sandbox_id = sandbox_id or services.settings.sandbox_default_id
+        if not sandbox_id:
+            raise ValueError("sandbox mode requires an explicit or configured default sandbox")
+    if sandbox_id:
+        from openbot.sandboxes.policy import directory
+        from openbot.sandboxes.runtime import resource
+        box = await session.get(Sandbox, sandbox_id)
+        if box is None or box.state != "active":
+            raise ValueError("sandbox is unavailable")
+        try:
+            slot = resource(services.settings, box.resource)
+            if box.resource_spec != slot.model_dump():
+                raise ValueError("sandbox inventory changed")
+        except RuntimeError as exc:
+            raise ValueError(str(exc)) from exc
     try:
-        normalized_working_directory = validate_workspace_directory(services.settings.workspace_root, working_directory)
+        normalized_working_directory = (directory(working_directory) if sandbox_id else
+                                        validate_workspace_directory(services.settings.workspace_root, working_directory))
     except ValueError as e:
         msg = str(e)
         if "working_directory" not in msg:
@@ -130,11 +149,13 @@ async def create_thread(services, session: AsyncSession, *, title: str, handles:
 
     thread = Thread(title=effective_title, kind=kind, created_by_actor_id=created_by.id if created_by else None,
                     default_bot_actor_id=default_bot.id if default_bot else None,
-                    working_directory=normalized_working_directory, external_ref=external_ref)
+                    working_directory=normalized_working_directory, external_ref=external_ref,
+                    sandbox_id=sandbox_id)
     session.add(thread)
     await session.flush()
     log.info("thread %s created: title=%r handles=%s default_bot=%s working_directory=%s tool_root=%s",
              thread.id, effective_title, handles, effective_default if default_bot else None, normalized_working_directory or ".",
+             f"sandbox:{sandbox_id}" if sandbox_id else
              thread_workspace_root(services.settings.workspace_root, normalized_working_directory))
     ids = {by_handle[h].id for h in handles}
     if created_by:

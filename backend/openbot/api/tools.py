@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from openbot.api.deps import get_services
 from openbot.services import Services
@@ -33,6 +33,8 @@ async def list_tools(services: Services = Depends(get_services)):
 async def list_skills(services: Services = Depends(get_services)):
     """Discovered skills for the bot editor's per-bot skill picker."""
     settings = services.settings
+    if settings.sandboxes_enabled:
+        raise HTTPException(409, "skill discovery is unavailable in sandbox prototype")
     roots = [settings.workspace_root]
     state_dir = settings.state_dir
     if state_dir is not None and state_dir.resolve() != settings.workspace_root.resolve():

@@ -19,3 +19,4 @@ class RunContext:
     tool_output_cap: int = 8000
     shell_output_cap: int = 4000
     shell_user: str | None = None
+    sandbox_id: str | None = None

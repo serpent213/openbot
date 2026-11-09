@@ -16,6 +16,8 @@ async def list_directories(path: str = Query(".", description="Directory path (r
     """Backs the working-directory picker: browsers cannot reveal a chosen folder's full path,
     so the UI walks accessible directories through the server. The selected path is later
     validated as an existing, accessible directory when a thread is created."""
+    if services.settings.sandboxes_enabled:
+        raise HTTPException(409, "directory browsing is unavailable in sandbox prototype; use relative paths")
     try:
         here, parent, entries = browse_workspace_directory(services.settings.workspace_root, path)
     except ValueError as exc:

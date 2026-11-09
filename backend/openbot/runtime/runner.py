@@ -6,6 +6,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from langchain.agents import create_agent
@@ -636,7 +637,7 @@ class Runner:
             # Removing the tool also excludes its cross-thread notes from this run.
             scratchpad = (
                 await load_scratchpad(session, bot.id)
-                if "scratchpad" in bot.bot.tool_names
+                if not thread.sandbox_id and "scratchpad" in bot.bot.tool_names
                 else None
             )
         by_id = {a.id: a for a in all_actors}
@@ -683,10 +684,11 @@ class Runner:
         query = "\n".join(m.content for m in triggers)
         memories = (
             await memory.relevant_memories(self.s.store, bot.id, query)
-            if self.s.store is not None
+            if self.s.store is not None and not thread.sandbox_id
             else []
         )
-        workspace_root = thread_workspace_root(st.workspace_root, thread.working_directory)
+        workspace_root = (Path("/workspace") if thread.sandbox_id else
+                          thread_workspace_root(st.workspace_root, thread.working_directory))
         # Skills the bot has enabled: only ids/names/descriptions go into the prompt;
         # the load_skill tool fetches the body on demand.
         skills = (
@@ -700,7 +702,8 @@ class Runner:
             all_bots=list(all_actors),
             participants=participants,
             memories=memories,
-            workspace_root=str(workspace_root),
+            workspace_root=("sandbox workspace (use relative paths; shell pwd reports the actual path)"
+                            if thread.sandbox_id else str(workspace_root)),
             older_count=older,
             # Only tools that will actually be bound: an MCP server that is down
             # must not be advertised, or the model calls a tool it does not have.
@@ -842,15 +845,20 @@ class Runner:
             if n not in gated and (self.s.registry.source(n) or "").startswith("mcp:")
         ]
 
-    def _build_agent(self, bot: Actor, system_prompt: str, triggers: tuple[int, int] | None = None):
+    def _build_agent(self, bot: Actor, system_prompt: str, triggers: tuple[int, int] | None = None,
+                     sandbox_id: str | None = None):
         p = bot.bot
-        tools = [
-            *self.s.registry.resolve(list(p.tool_names)),
-            *CORE_TOOLS,
-            *SCHEDULING_TOOLS,
-            *memory.memory_tools(bot.id, self.s.store),
-            *builtin_tools(p, self.s.settings),
-        ]
+        if sandbox_id:
+            from openbot.sandboxes.runtime import tools as sandbox_tools
+            tools = [*sandbox_tools(p.tool_names), *CORE_TOOLS]
+        else:
+            tools = [
+                *self.s.registry.resolve(list(p.tool_names)),
+                *CORE_TOOLS,
+                *SCHEDULING_TOOLS,
+                *memory.memory_tools(bot.id, self.s.store),
+                *builtin_tools(p, self.s.settings),
+            ]
         model = self.s.model_factory(bot)
         return create_agent(
             model,
@@ -1020,6 +1028,28 @@ class Runner:
         return final_text, interrupt, seq, usage
 
     async def execute(self, run_id: str, resume: Command | None = None) -> None:
+        from openbot.sandboxes.runtime import SandboxError, binding
+        async with self.s.session_factory() as session:
+            run = await session.get(Run, run_id)
+            if run is None or run.status not in ("queued", "waiting_human"):
+                return
+            thread = await session.get(Thread, run.thread_id)
+            bot = await session.get(Actor, run.actor_id)
+        if thread is None:
+            await self._set_status(run_id, "failed", error="thread unavailable")
+            return
+        try:
+            async with binding(self.s, run, thread, bot):
+                await self._execute(run_id, resume)
+        except asyncio.CancelledError:
+            await self._set_status(run_id, "cancelled")
+            raise
+        except SandboxError as exc:
+            await self._set_status(run_id, "failed", error=str(exc))
+            await self._system_message(thread.id, f"Sandbox run refused: {exc}")
+            await self._drop_checkpoint(run_id)
+
+    async def _execute(self, run_id: str, resume: Command | None = None) -> None:
         async with self.s.session_factory() as session:
             run = await session.get(Run, run_id)
             if run is None or run.status not in ("queued", "waiting_human"):
@@ -1055,10 +1085,13 @@ class Runner:
             # in its reply too.
             progress.reports = await self._reports_so_far(run.id)
         try:
+            if thread.sandbox_id:
+                from openbot.sandboxes.runtime import validate_bot
+                validate_bot(bot)
             system_prompt, inputs, hop = await self._prepare(bot, thread, run)
-            workspace_root = thread_workspace_root(
+            workspace_root = (Path("/workspace") if thread.sandbox_id else thread_workspace_root(
                 self.s.settings.workspace_root, thread.working_directory
-            )
+            ))
             eff_provider, eff_model = effective_bot_profile(bot.bot, self.s.settings)
             triggers = await self._run_turn_triggers(eff_provider, eff_model, system_prompt)
             log.info(
@@ -1124,8 +1157,9 @@ class Runner:
                 tool_output_cap=self.s.settings.tool_output_cap,
                 shell_output_cap=self.s.settings.shell_output_cap,
                 shell_user=self.s.settings.shell_user,
+                sandbox_id=thread.sandbox_id,
             )
-            agent = self._build_agent(bot, system_prompt, triggers)
+            agent = self._build_agent(bot, system_prompt, triggers, sandbox_id=thread.sandbox_id)
             # The model-call limit is the real cap; the graph's recursion limit only has to be high enough
             # that the limit middleware ends the run first, and is derived from the graph so adding a
             # middleware hook (each is a node every turn traverses) can never make it the binding limit.
@@ -1194,7 +1228,7 @@ class Runner:
                 usage_line,
                 ls_id,
             )
-            if bot.bot.memory_enabled and self.s.reflector is not None:
+            if not thread.sandbox_id and bot.bot.memory_enabled and self.s.reflector is not None:
                 # The run is already complete and its reply posted; reflection must never undo that.
                 try:
                     state = await agent.aget_state(config)

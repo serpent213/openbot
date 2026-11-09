@@ -19,6 +19,7 @@ from openbot.db.models import (
     InboxItem,
     Message,
     Run,
+    Sandbox,
     ScheduledMessage,
     Thread,
     ThreadParticipant,
@@ -158,7 +159,11 @@ class BotActor(_Worker):
                 await session.commit()
                 return Batch(run_id=chosen.run_id, items=[chosen], resume=chosen.payload.get("resume"))
             group = [i for i in items if i.kind == "message" and i.thread_id == chosen.thread_id]
-            run = Run(actor_id=self.actor_id, thread_id=chosen.thread_id, status="queued")
+            thread = await session.get(Thread, chosen.thread_id)
+            box = await session.get(Sandbox, thread.sandbox_id) if thread and thread.sandbox_id else None
+            run = Run(actor_id=self.actor_id, thread_id=chosen.thread_id, status="queued",
+                      sandbox_id=thread.sandbox_id if thread else None,
+                      sandbox_generation=box.generation if box else None)
             session.add(run)
             await session.flush()
             for i in group:
@@ -387,6 +392,8 @@ class ActorSystem:
         if self._started:
             return
         self._started = True
+        from openbot.sandboxes.runtime import recover
+        await recover(self.s)
         interrupted: list[tuple[str, str]] = []
         async with self.s.session_factory() as session:
             # "queued" runs are orphans too: _pick commits the Run row and flips its items to
@@ -412,6 +419,12 @@ class ActorSystem:
                                       previous_status=was, item_ids=settled)
             requeued = []
             for it in (await session.execute(select(InboxItem).where(InboxItem.status == "processing"))).scalars():
+                owner_run = await session.get(Run, it.run_id) if it.run_id else None
+                if owner_run is not None and owner_run.sandbox_id:
+                    # Completion and inbox settlement are separate commits. Never
+                    # turn a sandbox run with possibly completed effects into a new run.
+                    it.status, it.processed_at = "done", utcnow()
+                    continue
                 it.status = "queued"
                 requeued.append(it.id)
             if requeued:

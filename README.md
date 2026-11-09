@@ -377,6 +377,17 @@ For how these pieces fit together inside the backend, see [docs/architecture.md]
 > `run_shell`. [Backend in Docker](#backend-in-docker) does the container part and keeps shell
 > commands away from the server's keys; sandboxing each tool call is still on the roadmap.
 
+## Optional sandbox prototype
+
+An opt-in Linux prototype adds persistent sandbox/thread bindings and authenticated
+local workers for a limited set of internal-agent shell, file and HTTP tools.
+Unsupported paths (including coding CLIs, plugin/MCP tools and global bot memory)
+fail closed or are disabled. Legacy single-account mode remains the default.
+This is **not completed isolation**: deployment-specific filesystem/network policy
+and a distinct-UID pilot are still required. See [capabilities, operator API and
+pilot checklist](docs/sandboxes.md) before enabling it. No automatic deployment,
+account recycling or message broker is included.
+
 ## Plugins
 
 Trusted Python packages can add tools, authenticated API routes, database migrations

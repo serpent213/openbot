@@ -3,7 +3,15 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import AliasChoices, Field, PrivateAttr, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -11,6 +19,20 @@ from sqlalchemy.engine import make_url
 LOCAL_PUBLIC_URL = "http://127.0.0.1:8000"
 # Shared regex for validating Telegram Bot API tokens (format: <bot_id>:<token>).
 TELEGRAM_TOKEN_RE = re.compile(r"^\d+:[A-Za-z0-9_-]{30,}$")
+
+
+class SandboxResource(BaseModel):
+    """Operator-provisioned resource inventory; never supplied by a model."""
+    model_config = ConfigDict(extra="forbid")
+    socket_path: str = Field(min_length=1)
+    uid: int = Field(gt=0)
+
+    @field_validator("socket_path")
+    @classmethod
+    def absolute_socket(cls, value):
+        if not Path(value).is_absolute():
+            raise ValueError("sandbox socket must be absolute")
+        return value
 
 
 class Settings(BaseSettings):
@@ -131,6 +153,21 @@ class Settings(BaseSettings):
     # keys, database and secret.key stay out of the shell's reach. Env only on purpose, so a bot
     # can't switch it off through the settings API.
     shell_user: str | None = None
+
+    # Boot-only, operator-controlled inventory. No dynamic account creation/reuse.
+    sandboxes_enabled: bool = False
+    sandbox_resources: dict[str, SandboxResource] = {}
+    sandbox_default_id: str | None = None
+
+    @model_validator(mode="after")
+    def _sandbox_authentication(self):
+        if self.sandboxes_enabled and not self.openbot_api_key:
+            raise ValueError("sandbox mode requires OPENBOT_API_KEY")
+        slots = list(self.sandbox_resources.values())
+        if (len({s.uid for s in slots}) != len(slots)
+                or len({s.socket_path for s in slots}) != len(slots)):
+            raise ValueError("sandbox inventory UIDs and sockets must be unique")
+        return self
 
     @model_validator(mode="after")
     def _local_public_url_follows_listen_port(self):

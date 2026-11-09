@@ -2,9 +2,18 @@
 
 Date: 2026-11-08
 
-Status: design agreed in discussion, with the agent-loop placement recommendation
-below still to be confirmed. No sandbox implementation or deployment changes have
-been made. This document is the starting point for a new session in this checkout.
+Status: implementation authorized; trusted-server/worker split confirmed. A first
+opt-in execution slice is implemented on `feat/sandboxes`, without deployment or
+live account/service/firewall changes. This is not completed isolation. See
+[the prototype capability matrix and pilot checklist](docs/sandboxes.md).
+
+Current slice: durable sandbox/thread/run bindings, preprovisioned Linux worker
+inventory, authenticated Unix-socket execution for selected internal-agent tools,
+execution intents and quarantine without recycling. Coding CLIs, plugin/MCP tools,
+repository/skill discovery, global memory/scratchpad and directory browsing are
+unavailable in bound runs. The operator API exists; sandbox GUI and site network
+policy do not. Cross-UID/systemd isolation still requires an administrator-assisted
+pilot with fake secrets. Unprivileged tests do not establish an OS security boundary.
 
 ## Objective and agreed boundaries
 
@@ -39,12 +48,15 @@ Agreed choices:
 
 ## Current code and deployment
 
-At hand-off, core HEAD is `46522cc` and `report.md` is an existing untracked file;
-preserve it. Recheck repository state before editing.
+Implementation started from core `aaaf4ae` in a clean cloned checkout; no untracked
+`report.md` existed here. The older hand-off's `46522cc`/`report.md` description was
+stale. Recheck repository state and preserve unrelated work before editing.
 
-Current Openbot has a global `WORKSPACE_ROOT` and a per-thread
-`working_directory`, not a workspace security boundary. File tools perform path
-checks, but shell commands can access anything their service account can access.
+Legacy local mode has a global `WORKSPACE_ROOT` and a per-thread
+`working_directory`, not a workspace security boundary. Absolute and `~/` thread
+paths are accepted there. File tools perform path checks, but shell commands can
+access anything their service account can access. Bound threads instead accept
+only relative paths checked in the worker; unsupported operations fail closed.
 
 Relevant entry points:
 
@@ -59,14 +71,15 @@ Relevant entry points:
 - `backend/openbot/runtime/cli_agents/{base,run}.py`: CLI launches, environment
   filtering, temporary prompt files and session reuse.
 - `backend/openbot/runtime/memory.py`: bot memory currently keyed by bot identity.
-- `backend/openbot/plugin_api.py`: trusted in-process plugin API 1.2, currently
+- `backend/openbot/plugin_api.py`: trusted in-process plugin API 1.3, currently
   exposing tools, coding backends, commands, routes and lifecycle hooks.
 - `backend/openbot/api/{threads,bots,workspace}.py`: configuration and UI-facing APIs.
 
 Two instances currently run in separate LXCs. One is the general Openbot instance
 under Unix user `agent`; the other is on the host named `hermes`, under user
-`openbot`. Both have an enabled, authenticated Codex backend. Neither has a
-ReactorCA thread yet. No consolidation is part of the initial code changes.
+`openbot`. Operator update: Codex is currently disabled on the general instance;
+native Pi is available there. Other deployment details below are historical and
+were not reverified during implementation. No consolidation is part of this work.
 
 ReactorCA's existing checkout is `/home/hermes/projects/reactor-ca` on the Hermes
 host, owned by `hermes`, with its own Go-enabled devenv and an old Hermes profile.
@@ -81,7 +94,7 @@ assume all Nix-store contents are free of secrets.
 
 ## Where the Python agent loop runs
 
-Recommendation for the first prototype: keep the internal Python agent loop in
+Confirmed direction for the prototype: keep the internal Python agent loop in
 the unprivileged, trusted Openbot server. Run agent-directed shell, filesystem,
 HTTP and coding-CLI operations in the selected sandbox worker.
 
@@ -173,7 +186,9 @@ These links track upstream; check the deployment's pinned nixpkgs and selected
 account-management backend before implementation. Reuse NixOS's declarative
 account machinery, not a private copy of its passwd/group editing code.
 
-Proposed module shape, not an existing API:
+The opt-in provisioning module is now `nix/sandboxes.nix`. This fragment shows only
+its common options; explicit UID base, controller UID and installed Python path are
+also required. It has not been deployed or validated against site infrastructure:
 
 ```nix
 services.openbot.sandboxes = {
@@ -253,9 +268,12 @@ sudo, firewall command strings or application-generated NixOS activation.
 
 ## Memory, plugins and delegation
 
-The same bot may work in different sandboxes. Scope automatic memory retrieval
-and CLI-session reuse by sandbox as well as bot/thread; preserve legacy namespaces
-for the local mode without implicitly importing them into every sandbox.
+The same bot may work in different sandboxes. Scope automatic memory retrieval,
+reflection, scratchpad and CLI-session reuse by sandbox as well as bot/thread;
+preserve legacy namespaces for local mode without implicitly importing them. The
+first slice disables these features in bound runs instead of partially scoping
+them. It also refuses scheduling tools, global profile mutation and unadapted
+plugin/MCP tools. These refusals apply before model/prompt preparation.
 
 Keep the thread's sandbox fixed while jobs run. A sandbox change must not resume
 an old CLI session or automatically carry private state across the boundary.
@@ -275,18 +293,21 @@ global sharing is an intentional exception that should be visible in configurati
 
 ## Implementation sequence and acceptance checks
 
-1. Confirm the loop/worker split above; sketch the minimal request contract and
-   inventory all relevant execution paths. No generic plugin hook framework.
-2. Add optional sandbox records, thread binding and a local execution backend,
-   preserving existing single-account behaviour. Add the core routing boundary.
-3. Implement Linux workers and Nix-provisioned accounts with persistent allocation.
-   Add filesystem/process restrictions and targeted internal-service rules.
-4. Add the operator GUI: list, create/allocate, assign, inspect and retire sandboxes;
-   show capabilities, capacity, externally managed settings and clear failures.
-5. Adapt memory/session reuse and required tools/plugins. Use a ReactorCA development
-   checkout and an independent research sandbox as the pilot, with fake secrets.
-6. Implement a minimal Podman backend to validate the contract before stabilizing
-   the public plugin interface. Dynamic host-account creation can remain future work.
+1. Implemented first slice: durable records, immutable thread bindings, run snapshots,
+   authenticated Linux worker RPC, allowlisted internal-agent execution and durable
+   intent/quarantine. Legacy single-account mode remains available when disabled.
+2. Before any bound run, unsupported state/execution paths are explicitly refused or
+   disabled. Do not postpone these guards until after enabling workers.
+3. Next: validate actual Unix identities, systemd cgroups, filesystem masks, protected
+   internal services and Nix-mediated paths in disposable infrastructure with fake
+   secrets. The Nix pool defaults to 16 but deployment/activation is not authorized.
+4. Add coding-CLI worker execution, native sandbox-home login/session lifecycle and
+   safely scoped memory/scratchpad and required plugins as separate reviewed slices.
+5. Add the operator GUI and safe cleanup/reconciliation procedures. Retirement now
+   quarantines without reuse; safe pool shrink, automatic deletion and recycling are
+   unavailable. No Podman or backend-created accounts are implemented.
+6. Later validate a minimal Podman backend before freezing a public backend plugin
+   interface. Do not add a message broker as a prerequisite.
 
 Focused checks, not exhaustive security certification:
 
@@ -305,14 +326,14 @@ Focused checks, not exhaustive security certification:
 ## Instructions for the next session
 
 Start in this repository and read this document plus repository instructions.
-Discuss/confirm the agent-loop placement recommendation before implementing it.
-The user prefers plans before changes, minimal dependencies and surgical patches.
-There is no authorization to consolidate containers or move production data as
-part of simply resuming this document. No sandbox code has been committed or
-deployed. The earlier environment-hygiene proposal also remains unimplemented.
+The loop/worker split and first-slice implementation are authorized. The user
+prefers minimal dependencies and surgical patches. There is no authorization to
+consolidate containers, deploy, change live accounts/firewalls or move production
+data. See `docs/sandboxes.md` for supported paths and exact remaining pilot work.
+Worker environments are allowlisted; legacy local execution is intentionally unchanged.
 
 Use the sibling infrastructure repository for Nix packaging/deployment when ready,
 after reading its `nix/CLAUDE.md` and `teralink/CLAUDE.md`. Do not print credential
-files or raw environments. Preserve pre-existing `report.md` and unrelated work.
+files or raw environments. Preserve any pre-existing reports and unrelated work.
 Do not run integration tests that send chat messages or perform external actions
 without authorization. Keep the core and this plan domain-neutral and upstreamable.

@@ -60,6 +60,8 @@ def _validate_tools(services: Services, tool_names: list[str], approval_tools: l
     if extra:
         raise HTTPException(422, f"approval_tools must be a subset of tool_names: {extra}")
     if skill_names:
+        if services.settings.sandboxes_enabled:
+            raise HTTPException(422, "skills are unavailable in sandbox prototype")
         known = known_skill_names(services)
         unknown = [s for s in skill_names if s.lower() not in known]
         if unknown:

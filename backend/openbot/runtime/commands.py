@@ -56,7 +56,9 @@ async def help_command(ctx, args):
 async def new_command(ctx, args):
     current = await ctx.visible_thread(ctx.thread_id)
     thread = await create_thread(ctx.services, ctx.session, title="New conversation", handles=[],
-                                 created_by=ctx.actor, include_human=ctx.operator, kind="chat", commit=False)
+                                 created_by=ctx.actor, include_human=ctx.operator, kind="chat", commit=False,
+                                 sandbox_id=current.sandbox_id if current else None,
+                                 working_directory=current.working_directory if current else None)
     if current:
         thread.default_bot_actor_id = current.default_bot_actor_id
         thread.working_directory = current.working_directory

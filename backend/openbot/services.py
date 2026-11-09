@@ -38,3 +38,4 @@ class Services:
     _seed_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _rename_tasks: set = field(default_factory=set)  # thread titles being generated (runtime/renaming.py)
     scheduler: Any = None
+    _sandbox_operations: dict[str, asyncio.Lock] = field(default_factory=dict)

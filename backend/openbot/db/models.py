@@ -114,6 +114,32 @@ class ExternalProfile(Base):
     actor: Mapped[Actor] = relationship(back_populates="external")
 
 
+class Sandbox(TimestampMixin, Base):
+    """Persistent logical identity. Resource bindings are never recycled in this slice."""
+    __tablename__ = "sandboxes"
+    __table_args__ = (UniqueConstraint("backend", "resource", name="uq_sandbox_resource"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    backend: Mapped[str] = mapped_column(String(32), default="linux", nullable=False)
+    resource: Mapped[str] = mapped_column(String(120), nullable=False)
+    resource_key: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
+    resource_spec: Mapped[dict] = mapped_column(JSON, nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    state: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    active_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+class SandboxExecution(TimestampMixin, Base):
+    """Intent committed before dispatch. Unknown effects are never automatically repeated."""
+    __tablename__ = "sandbox_executions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    sandbox_id: Mapped[str] = mapped_column(ForeignKey("sandboxes.id"), nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    operation: Mapped[str] = mapped_column(String(64), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+
+
 class Thread(TimestampMixin, Base):
     __tablename__ = "threads"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -125,6 +151,7 @@ class Thread(TimestampMixin, Base):
     created_by_actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     default_bot_actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     working_directory: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    sandbox_id: Mapped[str | None] = mapped_column(ForeignKey("sandboxes.id"), nullable=True)
     external_ref: Mapped[str | None] = mapped_column(String(200), unique=True, nullable=True)
     hop_limit_notified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     auto_renamed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -215,6 +242,8 @@ class InboxItem(Base):
 class Run(Base):
     __tablename__ = "runs"
     __table_args__ = (Index("ix_runs_actor_thread_status", "actor_id", "thread_id", "status"),)
+    sandbox_id: Mapped[str | None] = mapped_column(ForeignKey("sandboxes.id"), nullable=True)
+    sandbox_generation: Mapped[int | None] = mapped_column(Integer, nullable=True)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     actor_id: Mapped[str] = mapped_column(String(36), ForeignKey("actors.id", ondelete="CASCADE"), nullable=False)
     thread_id: Mapped[str] = mapped_column(String(36), ForeignKey("threads.id", ondelete="CASCADE"), nullable=False)
