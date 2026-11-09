@@ -112,10 +112,15 @@ narrow model/persistence/memory APIs, authenticated for a particular sandbox and
 run, rather than giving workers the general Openbot API key or database URL.
 That is a larger process split; do not make it a prerequisite for the prototype.
 
-Coding CLIs necessarily run their own agent loops inside the worker. Their login
-state must be explicitly provisioned for that sandbox. Credentials readable by
-that UID can potentially also be read by its commands: document this limitation,
-use scoped accounts where possible, and never silently share the server home.
+Coding CLIs necessarily run their own agent loops inside the worker. For the
+prototype, each CLI keeps its native login dotfiles in the sandbox's private home,
+provisioned explicitly when needed and retained between runs. Do not share OAuth
+caches or implement a central refresh broker yet. Recycling a sandbox must remove
+these login files before its pool account can be assigned again; a new sandbox
+starts unauthenticated. Removing local files does not revoke provider-side tokens.
+Credentials readable by that UID can potentially also be read by its commands:
+document this limitation, use scoped accounts where possible, and never silently
+share the server home.
 
 ## Core and backend contract
 
