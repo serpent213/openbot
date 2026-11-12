@@ -3,8 +3,11 @@
 Date: 2026-11-08
 
 Status: implementation authorized; trusted-server/worker split confirmed. The
-opt-in execution prototype is implemented on `feat/sandboxes`, without deployment or
-live account/service/firewall changes. This is not completed isolation. See
+opt-in execution prototype is implemented on `feat/sandboxes`. Infrastructure's
+`nix/machines/bucket/openbot/README.md` records operator deployment and a two-UID/Pi
+continuation pilot at core `d9a8937`; this coding session has not deployed or modified
+live accounts/services/firewalls. The mixed-host/thread UI follow-up is not activated.
+This is not completed isolation. See
 [the prototype capability matrix and pilot checklist](docs/sandboxes.md).
 
 Current slice: durable sandbox/thread/run bindings, authenticated Linux worker RPC,
@@ -15,14 +18,19 @@ scratchpads are scoped; operator-controlled global memory sharing defaults false
 Worker CLI probes and directory/skill browsing have API support. Unadapted server
 plugin/MCP tools remain refused. Settings provides a global-memory sharing switch;
 allocation/recycling management GUI and site network policy remain separate work.
+Thread creation now selects an active sandbox, or explicitly enabled **Host —
+unrestricted** execution. Host selection is immutable, snapshotted per run and disabled
+by default (`SANDBOX_ALLOW_HOST_EXECUTION`). Old unbound threads remain blocked in
+sandbox mode. Sidebar quick creation still uses the configured default sandbox;
+Customize opens the form. Thread headers/list show their fixed execution location.
 
 Reliable cleanup now requires delegated cgroup v2 and nested user/mount namespaces:
 operation cgroups plus a verified kernel-locked read-only cgroup mount prevent
 commands from migrating out; a run lease handles controller loss. Missing prerequisites
 refuse execution, not fall back to process groups. The operator must validate this
 on the pinned systemd/kernel/LXC stack before the disposable pilot. Cross-UID isolation
-and real Pi login/continuation remain live-pilot work, not claims from the same-UID,
-fake-cgroup/fake-CLI test suite.
+and real Pi login/continuation are reported by the infrastructure pilot, not proven by
+the same-UID, fake-cgroup/fake-CLI test suite. Repeat deployment checks after upgrades.
 
 ## Objective and agreed boundaries
 
@@ -40,7 +48,11 @@ granted access. Kernel/container escapes are outside the prototype's guarantees.
 Agreed choices:
 
 - Preserve single-account execution when sandboxing is disabled.
-- A thread selects a sandbox. Agents invoked in that thread inherit it.
+- A thread selects a sandbox. Agents invoked in that thread inherit it. The operator
+  may also explicitly select Host execution if boot policy permits it; this uses the
+  controller account, not necessarily Unix root, and has no worker isolation. It is
+  trusted maintenance access with potential authority over the whole installation.
+  Missing/unavailable sandboxes never fall back to Host.
 - Multiple threads may intentionally share a sandbox and its Unix identity.
 - Sandbox homes, checkouts, credentials and assignments persist between runs.
 - Start with a Linux backend using separate Unix users and systemd workers.
@@ -97,7 +109,8 @@ host, owned by `hermes`, with its own Go-enabled devenv and an old Hermes profil
 The Openbot service hides that home. Use a new sandbox-owned development checkout
 for the pilot; do not expose production CA state or deployment credentials.
 
-Infrastructure configuration lives in the sibling infrastructure checkout:
+Infrastructure was cloned to `~/infrastructure` in the Development sandbox; its
+configuration lives under:
 `nix/machines/bucket/{openbot,hermes}/nixos/` and `nix/pkgs/openbot/`.
 Read that repository's instructions before changing it. Some Nix sources contain
 an intentionally restricted source-download token: do not dump it in output or
@@ -141,7 +154,12 @@ prototype, each CLI keeps its native login dotfiles in the sandbox's private hom
 provisioned explicitly when needed and retained between runs. Do not share OAuth
 caches or implement a central refresh broker yet. Recycling a sandbox must remove
 these login files before its pool account can be assigned again; a new sandbox
-starts unauthenticated. Removing local files does not revoke provider-side tokens.
+starts unauthenticated under the implemented account model. The operator now requests
+login identities that survive execution-slot recycling: separating retained identity
+storage from slots is future work, not an implemented recycling operation. Resetting
+a disposable workspace while keeping its identity home is a different operation and
+must exclude shared mounts; leaving all dotfiles is not safe cross-identity reuse.
+Removing local files does not revoke provider-side tokens.
 Credentials readable by that UID can potentially also be read by its commands:
 document this limitation, use scoped accounts where possible, and never silently
 share the server home.
@@ -328,7 +346,8 @@ global sharing is an intentional exception that should be visible in configurati
 4. Run the real separate-UID and native Pi continuation/login pilot after prerequisite
    agreement. Automated fake-CLI adapter tests are not that pilot. Adapt additional
    server plugins only as separately reviewed execution/scoping work.
-5. Add the operator GUI and safe cleanup/reconciliation procedures. Retirement now
+5. Thread selection/labels, target-aware directory browsing and memory settings are
+   available in the GUI. Allocation GUI and safe cleanup/reconciliation remain work. Retirement now
    quarantines without reuse; safe pool shrink, automatic deletion and recycling are
    unavailable. No Podman or backend-created accounts are implemented.
 6. Later validate a minimal Podman backend before freezing a public backend plugin

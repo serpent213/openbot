@@ -1,20 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Api } from "../api/client";
+import type { ExecutionTarget } from "../api/types";
 import { Button, Dialog, ErrorText, Spinner } from "./ui";
 import { FolderIcon } from "./icons";
 
 /**
- * Server-backed folder chooser for a thread's working directory.
- *
- * A browser's native directory dialog never reveals the chosen folder's full path, only its
- * name, so it cannot express "~/work/core-web". The backend runs on the user's machine and
- * already knows the rules (inside the workspace root or the home directory), so we walk the
- * filesystem through it instead.
+ * API-backed folder chooser in the selected execution context. Sandbox paths are
+ * worker-relative; only legacy/explicit host browsing exposes the Home tab.
+ * Query keys include the target so cached listings never cross sandbox bindings.
  */
-export default function DirectoryPicker({ initialPath, onSelect, onClose }: { initialPath: string; onSelect: (path: string) => void; onClose: () => void }) {
+export default function DirectoryPicker({ initialPath, onSelect, onClose, target = {} }: { initialPath: string; onSelect: (path: string) => void; onClose: () => void; target?: ExecutionTarget }) {
   const [path, setPath] = useState(initialPath);
-  const listing = useQuery({ queryKey: ["workspace-directories", path], queryFn: () => Api.listDirectories(path), retry: false });
+  const listing = useQuery({ queryKey: ["workspace-directories", target.sandbox_id ?? null, !!target.host_execution, path], queryFn: () => Api.listDirectories(path, target), retry: false });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -30,7 +28,7 @@ export default function DirectoryPicker({ initialPath, onSelect, onClose }: { in
   };
   return (
     <Dialog title="Choose working directory" titleId="directory-picker-title" onClose={onClose} className="gap-3">
-      <div role="tablist" className="inline-flex self-start rounded-ui border border-line p-0.5">{rootTab(".", "Workspace")}{rootTab("~", "Home")}</div>
+      <div role="tablist" className="inline-flex self-start rounded-ui border border-line p-0.5">{rootTab(".", "Workspace")}{!target.sandbox_id && rootTab("~", "Home")}</div>
       <div className="flex items-center gap-2 text-sm">
         <Button variant="secondary" size="sm" className="shrink-0" disabled={!listing.data?.parent} onClick={() => listing.data?.parent && setPath(listing.data.parent)} title="Up one level">↑ Up</Button>
         <code className="min-w-0 flex-1 truncate rounded-ui border border-line bg-sunken px-2 py-1 text-xs" data-testid="picker-path">{path === "." ? ". (workspace root)" : path}</code>

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Api } from "../api/client";
 import { ChevronDownIcon, PlusIcon } from "./icons";
+import { ErrorText } from "./ui";
 
 /** Split action for creating a default thread or opening the customization flow. */
 export default function NewThreadControl({ collapsed = false }: { collapsed?: boolean }) {
@@ -12,6 +13,8 @@ export default function NewThreadControl({ collapsed = false }: { collapsed?: bo
   const menuRef = useRef<HTMLDivElement>(null);
   const create = useMutation({
     mutationFn: () => Api.createThread({ handles: [] }),
+    // The compact sidebar has no space for an error/form; offer explicit setup.
+    onError: () => { if (collapsed) nav("/threads"); },
     onSuccess: (thread) => {
       qc.invalidateQueries({ queryKey: ["threads"] });
       nav(`/threads/${thread.id}`);
@@ -48,13 +51,14 @@ export default function NewThreadControl({ collapsed = false }: { collapsed?: bo
   }
 
   return (
-    <div ref={menuRef} className="relative flex">
+    <div ref={menuRef} className="relative flex flex-wrap">
       <button
         type="button"
         onClick={() => create.mutate()}
         disabled={create.isPending}
         className="flex h-9 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-l-ui border border-r-0 border-accent bg-accent px-3 text-[13px] font-medium leading-5 text-on-accent transition-colors hover:border-accent-strong hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-50"
         aria-label="New thread"
+        title="Create a thread using the configured defaults"
       >
         <PlusIcon className="h-3.5 w-3.5" />
         New thread
@@ -75,21 +79,14 @@ export default function NewThreadControl({ collapsed = false }: { collapsed?: bo
           <button
             type="button"
             role="menuitem"
-            onClick={() => { setOpen(false); create.mutate(); }}
-            className="block w-full whitespace-nowrap rounded-ui px-3 py-2 text-left text-xs text-fg hover:bg-sunken"
-          >
-            Start thread
-          </button>
-          <button
-            type="button"
-            role="menuitem"
             onClick={() => { setOpen(false); nav("/threads"); }}
             className="block w-full whitespace-nowrap rounded-ui px-3 py-2 text-left text-xs text-fg hover:bg-sunken"
           >
-            Set up thread
+            Customize…
           </button>
         </div>
       )}
+      {create.error && <div className="w-full pt-1 text-xs"><ErrorText error={create.error} /><button type="button" className="underline" onClick={() => nav("/threads")}>Customize thread</button></div>}
     </div>
   );
 }

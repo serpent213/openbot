@@ -53,6 +53,7 @@ function deferred<T>() {
 }
 beforeEach(() => {
   vi.spyOn(Api, "listPlugins").mockResolvedValue([]);
+  vi.spyOn(Api, "listSandboxes").mockResolvedValue({ enabled: false, sandboxes: [] });
   dismissSaveNotification(); localStorage.clear();
   qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
   qc.setQueryData(["settings"], [row]);

@@ -9,6 +9,7 @@ import { useBusEvents } from "../api/sse";
 import Composer from "../components/Composer";
 import MessageList from "../components/MessageList";
 import ThreadOdometer from "../components/ThreadOdometer";
+import ThreadExecutionBadge from "../components/ThreadExecutionBadge";
 import TodoPanel from "../components/TodoPanel";
 import { Button, ErrorText, IconButton, OfflineNotice, Spinner } from "../components/ui";
 import { ArrowLeftIcon, ArrowRightIcon, ChevronLeftIcon, MoreIcon } from "../components/icons";
@@ -27,6 +28,7 @@ export default function ThreadPage() {
   const detail = useQuery({ queryKey: ["thread", id], queryFn: () => Api.getThread(id), refetchOnMount: "always", refetchInterval: 10_000 });
   const bots = useQuery({ queryKey: ["bots"], queryFn: Api.listBots, refetchInterval: 10_000 });
   const usage = useQuery({ queryKey: ["thread-usage", id], queryFn: () => Api.getThreadUsage(id) });
+  const inventory = useQuery({ queryKey: ["sandboxes"], queryFn: Api.listSandboxes });
   // Keep the live per-thread transcript in the query cache so unmounting while navigating does
   // not discard tool calls and streaming output that arrived over SSE. The thread detail query
   // only contains persisted messages/open runs, not the in-progress run event transcript.
@@ -250,6 +252,7 @@ export default function ThreadPage() {
           <span className="thread-header-context">
             <span className="thread-header-participants" title={participantList}>{participantList}</span>
             <span className="thread-header-cwd" title={t.working_directory ?? "."}><span className="text-faint">cwd </span>{t.working_directory ?? "."}</span>
+            <ThreadExecutionBadge thread={t} inventory={inventory.data} />
           </span>
           <span className="thread-header-counters" role="group" aria-label="Thread usage">
             <ThreadOdometer label="calls" value={usageData?.model_calls} loading={usage.isLoading} />

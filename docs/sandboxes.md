@@ -1,7 +1,8 @@
 # Optional sandbox prototype
 
 An opt-in Linux execution backend, **not a claim of completed deployment isolation**.
-Legacy single-account mode remains the default. The trusted Python server owns model
+Legacy single-account mode remains the default. Mixed sandbox/host operation is an
+explicit, boot-time operator opt-in, not a fallback. The trusted Python server owns model
 calls, orchestration and persistence; selected workers execute agent-directed I/O.
 No additional Python dependencies, broker, root helper or automatic deployment.
 
@@ -20,7 +21,7 @@ No additional Python dependencies, broker, root helper or automatic deployment.
 | Bot roster / instructions / installed server plugins / operator UI | Trusted shared configuration, not a multi-tenant UI authorization boundary |
 | Worker CLI user extensions/MCP | Governed by the selected CLI adapter/permission mode; execute inside its worker operation, not as server plugins |
 | Unadapted server plugin/MCP tools, bot creation/profile mutation, hosted web tools | Explicitly refused; never silently executed on the server |
-| Operator GUI | Settings exposes the per-sandbox global-memory switch; allocation and lifecycle management still use the operator API |
+| Operator GUI | Thread creation selects a sandbox or explicitly enabled Host execution; immutable binding labels and target-aware directory browsing; Settings exposes memory sharing. Allocation/lifecycle management still use the operator API |
 | Public sandbox backend registration / Podman / recycling | Deferred |
 
 Coding adapters must be installed/enabled in **both** controller and worker. The
@@ -103,6 +104,10 @@ Boot settings (not agent-editable):
   Select collision-free stable UIDs; the example reserves nothing.
 - `SANDBOX_DEFAULT_ID`: optional allocated sandbox used by ingress without an
   explicit selection. Missing bindings fail closed. `/new` inherits its binding.
+- `SANDBOX_ALLOW_HOST_EXECUTION=false`: boot-only policy. Set true to allow the
+  operator to create explicit **Host — unrestricted** threads alongside sandboxes.
+  This is not a root helper, privilege escalation, or automatic host default.
+  Disabling it blocks subsequent host turns/resumes, not already running commands.
 
 The controller and workers require **distinct non-root UIDs**. Never put the
 operator API key, controller DB/model keys or server configuration in worker homes,
@@ -116,7 +121,10 @@ Authenticated endpoints:
   retired UIDs/resources cannot be allocated again.
 - `POST /api/v1/threads`: select `sandbox_id`, optionally a **relative**
   `working_directory`. Only the worker checks existence. Fixing a nonexistent
-  directory does not require allocating another sandbox.
+  directory does not require allocating another sandbox. Alternatively, the operator
+  may explicitly send `host_execution:true` when boot policy allows it. Both fields
+  together are rejected. Omitted/null sandbox IDs still use the configured sandbox
+  default, never Host. Selection is immutable and snapshotted onto each run.
 - `PATCH /api/v1/sandboxes/{id}`: `{"share_global_memory":true}` explicitly selects
   the existing bot-global memory namespace for **newly created runs**, for both
   reads and writes/reflection. Default is false. Each run snapshots the policy;
@@ -131,7 +139,12 @@ Authenticated endpoints:
 - `GET /api/v1/workspace/directories?sandbox_id=…&path=…`: worker directory browsing.
   Discovery/probes take a short exclusive lease; a busy sandbox returns an
   actionable conflict, not a local fallback. Global discovery in sandbox mode
-  requires an explicit sandbox selection. The existing GUI does not yet select it.
+  requires an explicit sandbox selection. The thread creation directory picker sends
+  the selected target and caches each target separately. Sandbox browsing exposes
+  only the workspace, not the legacy Home tab. Operator discovery endpoints also
+  accept `host_execution=true` when boot policy permits it; omission never probes the
+  controller in sandbox mode. The global bot editor's skill/CLI selectors do not yet
+  send a target, so those discovery features remain explicitly unavailable there.
 - `POST /api/v1/sandboxes/{id}/retire`: quarantine and request active-run cancellation.
   This does not revoke network policy, erase credentials/data or make a slot reusable.
   Inspect cleanup confirmation and stop the unit before any manual retirement work.
@@ -155,11 +168,35 @@ home. Threads sharing a UID/home are not hard confidentiality boundaries from ea
 other, regardless of logical session/memory keys.
 
 Migrations `0025` and `0026` add bindings/intents, the memory opt-in/run snapshot and
-scoped scratchpads. Legacy rows/data stay in their original namespace; old bound
+scoped scratchpads. Migration `0027` adds explicit host selection to threads/runs,
+with false defaults: no existing unbound row is implicitly authorized. Legacy rows/data stay in their original namespace; old bound
 runs without a memory snapshot default to sandbox scope. Back up the DB and homes
 consistently; restoring one without reconciling the other is unsafe. Disabling the
 feature never converts an already-bound thread into a local run. Stop workloads and
 upgrade controller and workers together: RPC v1 and v2 are deliberately not mixed.
+
+## Thread UI and intentional host execution
+
+The sidebar's main **New thread** button immediately creates a default thread;
+**Customize…** opens the creation form without creating anything. The form selects
+an active named sandbox (configured default initially selected), or **Host —
+unrestricted** if allowed. No default means the operator must choose. The header and
+thread list show the immutable execution location; changing it requires a new thread.
+Legacy unbound threads remain blocked in sandbox mode, even when Host is enabled.
+`/new` inherits an explicit Host binding only for an operator command; non-operator
+creation cannot select Host. Quick creation and ordinary ingress never select Host.
+
+Host turns use the existing controller execution paths, privileges and global
+memory/scratchpad behavior, including its native CLI home/environment. They do not
+inherit worker login state or worker-only systemd credentials. For example, moving
+Pi login state to slot1 does not authenticate controller-side Pi. Configure host
+CLI availability/login separately if needed; this code does not move credentials.
+Host runs share the global concurrency budget with sandbox runs and remain one run
+per bot, but have **no worker cgroup cleanup or sandbox tool restrictions**. A Host
+agent can access whatever the controller can, potentially including application
+state/keys and worker control sockets. This is trusted maintenance access and can
+compromise the whole installation; red labels are warnings, not an OS boundary.
+It grants no sudo/root rights and cannot by itself deploy a NixOS configuration.
 
 ## Worker provisioning
 
@@ -205,7 +242,13 @@ operation's temporary directory after cleanup, including cancellation.
 Provision native CLI logins/worker-only keys explicitly as that sandbox user, with
 the worker stopped. Do not run unrelated services/login sessions under a pool UID.
 No login contents are copied/read by core, and no shared OAuth cache/refresh broker
-is introduced. Removing login files does not revoke provider tokens. Future reuse
+is introduced. Ordinary turn cleanup preserves native login state. A future workspace
+reset should retain the private identity home and affect only a designated disposable
+workspace, excluding shared mounts; `rm -rf ~/*` is not safe account recycling.
+Persistent login identities that can detach from recycled execution slots are a
+requested future direction, not implemented here. Removing login files does not
+revoke provider tokens. Reassignment to a different identity still requires cleanup;
+future reuse
 must stop all processes and remove/quarantine **all** writable credentials/sessions
 and persistent state. No recycling/reactivation endpoint is supplied.
 

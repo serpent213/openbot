@@ -9,7 +9,7 @@ import { Api } from "../api/client";
 
 vi.mock("../api/client", () => ({ Api: { createThread: vi.fn() } }));
 
-function renderControl() {
+function renderControl(collapsed = false) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root: Root = createRoot(container);
@@ -17,7 +17,7 @@ function renderControl() {
   function Probe() {
     const location = useLocation();
     locations.push(location.pathname);
-    return <NewThreadControl />;
+    return <NewThreadControl collapsed={collapsed} />;
   }
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   act(() => { root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/inbox"]}><Probe /></MemoryRouter></QueryClientProvider>); });
@@ -39,29 +39,44 @@ describe("NewThreadControl", () => {
     view.root.unmount();
   });
 
-  it("keeps the expand action separate and exposes exactly the two requested options", async () => {
+  it("keeps the expand action separate and offers only Customize", async () => {
     const view = renderControl();
     const buttons = [...view.container.querySelectorAll("button")];
     expect(buttons).toHaveLength(2);
     expect(buttons[1].getAttribute("aria-label")).toBe("New thread options");
     await act(async () => { buttons[1].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     const menuItems = [...view.container.querySelectorAll('[role="menuitem"]')];
-    expect(menuItems.map((item) => item.textContent?.trim())).toEqual(["Start thread", "Set up thread"]);
+    expect(menuItems.map((item) => item.textContent?.trim())).toEqual(["Customize…"]);
     view.root.unmount();
   });
 
-  it("uses the same default creation for Start thread and opens setup for Set up thread", async () => {
-    vi.mocked(Api.createThread).mockResolvedValue({ id: "thread-2" } as never);
+  it("opens customization without creating a thread", async () => {
     const view = renderControl();
-    const expand = () => act(async () => { (view.container.querySelector('button[aria-label="New thread options"]') as HTMLButtonElement).click(); });
-    await expand();
+    await act(async () => { (view.container.querySelector('button[aria-label="New thread options"]') as HTMLButtonElement).click(); });
     await act(async () => { view.container.querySelector('[role="menuitem"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
-    await flush();
-    expect(Api.createThread).toHaveBeenCalledWith({ handles: [] });
-    expect(view.locations.at(-1)).toBe("/threads/thread-2");
-    await expand();
-    await act(async () => { view.container.querySelectorAll('[role="menuitem"]')[1].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(Api.createThread).not.toHaveBeenCalled();
     expect(view.locations.at(-1)).toBe("/threads");
+    view.root.unmount();
+  });
+
+  it("opens customization on compact-sidebar failure rather than failing silently", async () => {
+    vi.mocked(Api.createThread).mockRejectedValue(new Error("No default sandbox"));
+    const view = renderControl(true);
+    await act(async () => { (view.container.querySelector('button[aria-label="New thread"]') as HTMLButtonElement).click(); });
+    await flush();
+    expect(view.locations.at(-1)).toBe("/threads");
+    expect(Api.createThread).toHaveBeenCalledExactlyOnceWith({ handles: [] });
+    view.root.unmount();
+  });
+
+  it("shows a failed default creation and offers customization rather than host fallback", async () => {
+    vi.mocked(Api.createThread).mockRejectedValue(new Error("sandbox mode requires an explicit or configured default sandbox"));
+    const view = renderControl();
+    await act(async () => { (view.container.querySelector('button[aria-label="New thread"]') as HTMLButtonElement).click(); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+    expect(view.container.textContent).toContain("sandbox mode requires");
+    expect(view.container.textContent).toContain("Customize thread");
+    expect(Api.createThread).toHaveBeenCalledExactlyOnceWith({ handles: [] });
     view.root.unmount();
   });
 });

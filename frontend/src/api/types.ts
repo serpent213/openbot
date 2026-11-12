@@ -1,12 +1,13 @@
 export type ActorKind = "bot" | "human" | "external" | "system";
 export interface Sandbox { id: string; name: string; resource: string; state: string; share_global_memory: boolean; }
-export interface SandboxInventory { enabled: boolean; sandboxes: Sandbox[]; }
+export interface SandboxInventory { enabled: boolean; sandboxes: Sandbox[]; default_sandbox_id?: string | null; host_execution_allowed?: boolean; }
+export interface ExecutionTarget { sandbox_id?: string; host_execution?: boolean; }
 export interface Actor { id: string; kind: ActorKind; handle: string; name: string; description: string; enabled: boolean; webhook_url: string | null; created_at: string; updated_at: string; }
 export interface BotCatalogEntry { id: string; handle: string; name: string; description: string; icon: string; instruction_file: string; tool_names: string[]; approval_tools: string[]; model_settings: Record<string, unknown>; }
 export interface Bot { id: string; handle: string; name: string; description: string; icon: string; enabled: boolean; active: boolean; instructions: string; provider: string; model: string; model_settings: Record<string, unknown>; tool_names: string[]; approval_tools: string[]; skill_names: string[]; memory_enabled: boolean; model_calls?: number; prompt_tokens?: number; completion_tokens?: number; cache_read_tokens?: number; cache_write_tokens?: number; reasoning_tokens?: number; cost_usd?: number; created_at: string; updated_at: string; }
 export type BotInput = Omit<Bot, "id" | "created_at" | "updated_at" | "active">;
 export interface Participant { actor_id: string; kind: ActorKind; handle: string; name: string; }
-export interface Thread { id: string; title: string; kind: "chat" | "direct"; created_by_actor_id: string | null; default_bot_actor_id: string | null; default_bot_handle: string | null; working_directory: string | null; external_ref: string | null; created_at: string; updated_at: string; last_message_at: string | null; participants: Participant[]; active?: boolean; }
+export interface Thread { sandbox_id?: string | null; host_execution?: boolean; id: string; title: string; kind: "chat" | "direct"; created_by_actor_id: string | null; default_bot_actor_id: string | null; default_bot_handle: string | null; working_directory: string | null; external_ref: string | null; created_at: string; updated_at: string; last_message_at: string | null; participants: Participant[]; active?: boolean; }
 /** One image attached to a message (mirrors the backend Attachment schema); lives in Message.metadata.attachments. */
 export interface MessageAttachment { url: string; name?: string | null; }
 export interface Message { id: string; thread_id: string; sender_actor_id: string | null; sender_kind: string; sender_name: string; content: string; mentions: string[]; hop: number; run_id: string | null; metadata: Record<string, unknown>; created_at: string; }

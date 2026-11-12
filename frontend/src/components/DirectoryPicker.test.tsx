@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { DirectoryListing } from "../api/types";
+import type { DirectoryListing, ExecutionTarget } from "../api/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -15,12 +15,12 @@ const tree: Record<string, DirectoryListing> = {
   "~/work": { path: "~/work", parent: "~", entries: [{ name: "core-web", path: "~/work/core-web" }, { name: "openbot", path: "~/work/openbot" }] },
   "~/work/core-web": { path: "~/work/core-web", parent: "~/work", entries: [] },
 };
-const listDirectories = vi.fn(async (path: string) => {
+const listDirectories = vi.fn(async (path: string, _target?: ExecutionTarget) => {
   const hit = tree[path];
   if (!hit) throw new Error(`{"detail":"working_directory does not exist: ${path}"}`);
   return hit;
 });
-vi.mock("../api/client", () => ({ Api: { listDirectories: (p: string) => listDirectories(p) } }));
+vi.mock("../api/client", () => ({ Api: { listDirectories: (p: string, target?: ExecutionTarget) => listDirectories(p, target) } }));
 
 import DirectoryPicker from "./DirectoryPicker";
 import { initialPickerPath } from "../lib/workingDirectory";
@@ -32,11 +32,11 @@ describe("DirectoryPicker", () => {
   let root: Root; let el: HTMLDivElement;
   afterEach(() => { act(() => root.unmount()); el.remove(); listDirectories.mockClear(); });
 
-  async function mount(initialPath: string) {
+  async function mount(initialPath: string, target?: ExecutionTarget) {
     const onSelect = vi.fn(); const onClose = vi.fn();
     el = document.createElement("div"); document.body.appendChild(el); root = createRoot(el);
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    await act(async () => { root.render(<QueryClientProvider client={qc}><DirectoryPicker initialPath={initialPath} onSelect={onSelect} onClose={onClose} /></QueryClientProvider>); });
+    await act(async () => { root.render(<QueryClientProvider client={qc}><DirectoryPicker initialPath={initialPath} target={target} onSelect={onSelect} onClose={onClose} /></QueryClientProvider>); });
     await flush();
     return { onSelect, onClose };
   }
@@ -58,6 +58,20 @@ describe("DirectoryPicker", () => {
     expect(el.textContent).toContain("No subfolders.");
     await act(async () => { byText(el, "Use this folder").click(); });
     expect(onSelect).toHaveBeenCalledWith("~/work/core-web");
+  });
+
+  it("routes sandbox browsing and hides the unsupported home tab", async () => {
+    await mount(".", { sandbox_id: "development" });
+    expect(listDirectories).toHaveBeenCalledWith(".", { sandbox_id: "development" });
+    expect(byText(el, "Home")).toBeUndefined();
+    await act(async () => { byText(el, "frontend").click(); }); await flush();
+    expect(listDirectories).toHaveBeenLastCalledWith("frontend", { sandbox_id: "development" });
+  });
+
+  it("sends an explicit host choice for host browsing", async () => {
+    await mount(".", { host_execution: true });
+    expect(listDirectories).toHaveBeenCalledWith(".", { host_execution: true });
+    expect(byText(el, "Home")).toBeDefined();
   });
 
   it("goes up one level to the reported parent", async () => {

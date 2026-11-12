@@ -5,7 +5,7 @@ export interface ScheduledMessage { id: string; thread_id: string; content: stri
 
 export interface AttachmentIn { url: string; name?: string; }
 import { ApiError, backendUnavailableEvent, isBackendUnavailable } from "./errors";
-import type { Sandbox, SandboxInventory } from "./types";
+import type { ExecutionTarget, Sandbox, SandboxInventory } from "./types";
 
 export { ApiError } from "./errors";
 
@@ -58,7 +58,7 @@ export const Api = {
   createActor: (a: { handle: string; name: string; description?: string; webhook_url?: string | null; webhook_secret?: string | null }) => api<Actor>("/actors", { method: "POST", json: a }),
   deleteActor: (id: string) => api<void>(`/actors/${id}`, { method: "DELETE" }),
   listThreads: () => api<Thread[]>("/threads"),
-  createThread: (t: { title?: string; handles: string[]; default_bot_handle?: string; working_directory?: string | null }) => api<Thread>("/threads", { method: "POST", json: t }),
+  createThread: (t: ExecutionTarget & { title?: string; handles: string[]; default_bot_handle?: string; working_directory?: string | null }) => api<Thread>("/threads", { method: "POST", json: t }),
   getThread: (id: string, before?: string) => api<ThreadDetail>(`/threads/${id}?limit=50${before ? `&before=${before}` : ""}`),
   deleteThread: (id: string) => api<void>(`/threads/${id}`, { method: "DELETE" }),
   updateThread: (id: string, body: { default_bot_handle: string }) => api<Thread>(`/threads/${id}`, { method: "PATCH", json: body }),
@@ -71,7 +71,12 @@ export const Api = {
   listRuns: (threadId: string) => api<Run[]>(`/runs?thread_id=${threadId}`),
   getRun: (id: string) => api<RunDetail>(`/runs/${id}`),
   getThreadUsage: (threadId: string) => api<ThreadUsage>(`/threads/${threadId}/usage`),
-  listDirectories: (path: string) => api<DirectoryListing>(`/workspace/directories?path=${encodeURIComponent(path || ".")}`),
+  listDirectories: (path: string, target: ExecutionTarget = {}) => {
+    const query = new URLSearchParams({ path: path || "." });
+    if (target.sandbox_id) query.set("sandbox_id", target.sandbox_id);
+    if (target.host_execution) query.set("host_execution", "true");
+    return api<DirectoryListing>(`/workspace/directories?${query}`);
+  },
   resumeRun: (id: string, body: { answer?: string; decisions?: ("approve" | "reject")[] }) => api<Run>(`/runs/${id}/resume`, { method: "POST", json: body }),
   cancelRun: (id: string) => api<Run>(`/runs/${id}/cancel`, { method: "POST" }),
   listTools: () => api<{ tools: ToolInfo[]; errors: { file: string; error: string }[] }>("/tools"),
