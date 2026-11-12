@@ -158,6 +158,8 @@ class Settings(BaseSettings):
     sandboxes_enabled: bool = False
     sandbox_resources: dict[str, SandboxResource] = {}
     sandbox_default_id: str | None = None
+    # Boot-only operator policy, never an agent-editable setting or implicit fallback.
+    sandbox_allow_host_execution: bool = False
 
     @model_validator(mode="after")
     def _sandbox_authentication(self):

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from openbot.api.deps import get_services
+from openbot.api.sandboxes import validate_inspection_target
 from openbot.runtime.cli_agents import CliAgentError, adapter_for, adapters
 from openbot.runtime.cli_agents.base import check_version, child_env, find_executable, login_status
 from openbot.runtime.providers import list_ollama_models, provider_configured, provider_status
@@ -24,9 +25,11 @@ async def providers(services: Services = Depends(get_services)):
 
 
 @router.get("/cli/{provider}")
-async def cli_agent(provider: str, sandbox_id: str | None = None, services: Services = Depends(get_services)):
+async def cli_agent(provider: str, sandbox_id: str | None = None, host_execution: bool = False,
+                    services: Services = Depends(get_services)):
     """Where the CLI is, its version and whether it is logged in. The login state is the exit code of
     the CLI's own status command; its output is not passed on."""
+    validate_inspection_target(services.settings, sandbox_id, host_execution)
     adapter = adapter_for(provider, services.settings)
     if adapter is None:
         raise HTTPException(404, "not a CLI provider")
@@ -37,8 +40,6 @@ async def cli_agent(provider: str, sandbox_id: str | None = None, services: Serv
         if out["logged_in"] is False:
             out["problem"] = f"{adapter.label} is not logged in. {adapter.login_hint}".rstrip()
         return {"id": adapter.provider, "label": adapter.label, **out}
-    if services.settings.sandboxes_enabled:
-        raise HTTPException(409, "select sandbox_id for worker-side coding CLI probes")
     out = {"id": adapter.provider, "label": adapter.label, "path": find_executable(adapter, services.settings),
            "version": None, "logged_in": None, "problem": None}
     if out["path"] is None:

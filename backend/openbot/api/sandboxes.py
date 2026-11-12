@@ -34,6 +34,8 @@ async def listing(session=Depends(get_session), services=Depends(get_services)):
     rows = (await session.scalars(select(Sandbox).order_by(Sandbox.name))).all()
     allocated = {row.resource for row in rows}
     return {"enabled": services.settings.sandboxes_enabled,
+            "default_sandbox_id": services.settings.sandbox_default_id,
+            "host_execution_allowed": services.settings.sandbox_allow_host_execution,
             "capabilities": sorted(WORKER_TOOLS), "coding_cli": True,
             "concurrent_operations": True, "cleanup_requires": "delegated cgroup v2 and user/mount namespaces",
             "create_resources": False, "recycle": False,
@@ -67,6 +69,16 @@ async def configure(sandbox_id: str, body: SandboxUpdate, session=Depends(get_se
     box.share_global_memory = body.share_global_memory
     await session.commit()
     return {**output(box), "notice": "memory policy applies to newly created runs; existing run snapshots are unchanged"}
+
+
+def validate_inspection_target(settings, sandbox_id, host_execution):
+    """Operator discovery must select a target; never infer host from a missing ID."""
+    if sandbox_id and host_execution:
+        raise HTTPException(422, "select either sandbox_id or host_execution, not both")
+    if host_execution and not settings.sandbox_allow_host_execution:
+        raise HTTPException(403, "host execution is disabled by the operator")
+    if settings.sandboxes_enabled and not sandbox_id and not host_execution:
+        raise HTTPException(409, "select sandbox_id or explicitly request allowed host_execution")
 
 
 async def worker_inspect(services, sandbox_id, operation, args, directory=None):

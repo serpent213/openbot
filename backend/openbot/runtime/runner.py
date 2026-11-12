@@ -1056,7 +1056,9 @@ class Runner:
             return
         try:
             async with binding(self.s, run, thread, bot):
-                permit = self.s.actors.sem if thread.sandbox_id and self.s.actors else nullcontext()
+                # In sandbox mode BotActor defers admission here for ALL runs,
+                # including explicitly selected host runs. Legacy mode holds it there.
+                permit = self.s.actors.sem if self.s.settings.sandboxes_enabled and self.s.actors else nullcontext()
                 async with permit:
                     await self._execute(run_id, resume)
         except asyncio.CancelledError:

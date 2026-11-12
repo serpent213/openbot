@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from openbot.api.deps import get_services
+from openbot.api.sandboxes import validate_inspection_target
 from openbot.api.schemas import DirectoryEntryOut, DirectoryListingOut
 from openbot.services import Services
 from openbot.tools.builtin.workspace import browse_workspace_directory
@@ -12,15 +13,15 @@ router = APIRouter(prefix="/workspace", tags=["workspace"])
 
 @router.get("/directories", response_model=DirectoryListingOut)
 async def list_directories(path: str = Query(".", description="Directory path (relative, absolute, or ~-relative)"),
-                           sandbox_id: str | None = None, services: Services = Depends(get_services)):
-    """Backs the working-directory picker: browsers cannot reveal a chosen folder's full path,
-    so the UI walks accessible directories through the server. The selected path is later
-    validated as an existing, accessible directory when a thread is created."""
+                           sandbox_id: str | None = None, host_execution: bool = False,
+                           services: Services = Depends(get_services)):
+    """Browse in the explicitly selected worker, or intentionally selected host context.
+    Worker paths are relative to its workspace; their existence is checked in the worker,
+    never through controller filesystem access. Legacy host browsing is unchanged."""
+    validate_inspection_target(services.settings, sandbox_id, host_execution)
     if sandbox_id:
         from openbot.api.sandboxes import worker_inspect
         return await worker_inspect(services, sandbox_id, "browse", {"path": path})
-    if services.settings.sandboxes_enabled:
-        raise HTTPException(409, "select sandbox_id for worker-side directory browsing")
     try:
         here, parent, entries = browse_workspace_directory(services.settings.workspace_root, path)
     except ValueError as exc:

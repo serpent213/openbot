@@ -148,7 +148,9 @@ class ParticipantOut(BaseModel):
 
 
 class ThreadCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     sandbox_id: str | None = None
+    host_execution: bool = False
     title: str = ""
     handles: list[str] = []
     default_bot_handle: str | None = Field(default=None, pattern=HANDLE_RE)
@@ -163,6 +165,7 @@ class ThreadUpdate(BaseModel):
 class ThreadOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     sandbox_id: str | None = None
+    host_execution: bool = False
     id: str
     title: str
     kind: str = "chat"
@@ -198,6 +201,7 @@ class RunOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     sandbox_id: str | None = None
     sandbox_generation: int | None = None
+    host_execution: bool = False
     id: str
     actor_id: str
     thread_id: str

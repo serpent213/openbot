@@ -63,8 +63,17 @@ async def recover(services):
 
 @asynccontextmanager
 async def binding(services, run, thread, bot=None, *, wait=True):
+    # Old NULL bindings remain blocked in sandbox mode. Host access requires an
+    # explicit immutable thread choice, a matching run snapshot and boot policy.
+    host = bool(getattr(thread, "host_execution", False))
+    if bool(getattr(run, "host_execution", False)) != host:
+        raise SandboxRejected("run host selection does not match immutable thread binding")
+    if host and (thread.sandbox_id or run.sandbox_id):
+        raise SandboxRejected("host execution cannot have a sandbox binding")
+    if host and not services.settings.sandbox_allow_host_execution:
+        raise SandboxRejected("host execution is disabled by the operator")
     if not thread.sandbox_id:
-        if services.settings.sandboxes_enabled or run.sandbox_id:
+        if run.sandbox_id or (services.settings.sandboxes_enabled and not host):
             raise SandboxRejected("sandbox mode requires a bound thread; local fallback refused")
         yield
         return

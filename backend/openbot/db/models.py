@@ -15,6 +15,7 @@ from sqlalchemy import (
     Text,
     TypeDecorator,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -153,6 +154,8 @@ class Thread(TimestampMixin, Base):
     default_bot_actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     working_directory: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     sandbox_id: Mapped[str | None] = mapped_column(ForeignKey("sandboxes.id"), nullable=True)
+    # Explicit operator-selected host execution; null sandbox alone never opts in.
+    host_execution: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     external_ref: Mapped[str | None] = mapped_column(String(200), unique=True, nullable=True)
     hop_limit_notified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     auto_renamed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -253,6 +256,7 @@ class Run(Base):
     __table_args__ = (Index("ix_runs_actor_thread_status", "actor_id", "thread_id", "status"),)
     sandbox_id: Mapped[str | None] = mapped_column(ForeignKey("sandboxes.id"), nullable=True)
     sandbox_generation: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    host_execution: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     memory_namespace: Mapped[list | None] = mapped_column(JSON, nullable=True)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     actor_id: Mapped[str] = mapped_column(String(36), ForeignKey("actors.id", ondelete="CASCADE"), nullable=False)

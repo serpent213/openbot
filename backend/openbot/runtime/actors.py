@@ -171,6 +171,7 @@ class BotActor(_Worker):
             run = Run(actor_id=self.actor_id, thread_id=chosen.thread_id, status="queued",
                       sandbox_id=thread.sandbox_id if thread else None,
                       sandbox_generation=box.generation if box else None,
+                      host_execution=thread.host_execution if thread else False,
                       memory_namespace=list(namespace) if namespace else None)
             session.add(run)
             await session.flush()

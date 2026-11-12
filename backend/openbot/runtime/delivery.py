@@ -108,7 +108,7 @@ async def create_thread(services, session: AsyncSession, *, title: str, handles:
                         external_ref: str | None = None, include_human: bool = True,
                         default_bot_handle: str | None = None, working_directory: str | None = None,
                         kind: str = "chat", commit: bool = True,
-                        sandbox_id: str | None = None) -> Thread:
+                        sandbox_id: str | None = None, host_execution: bool = False) -> Thread:
     by_handle = await _actors_by_handle(session)
     unknown = [h for h in handles if h not in by_handle]
     if unknown:
@@ -119,7 +119,14 @@ async def create_thread(services, session: AsyncSession, *, title: str, handles:
         raise ValueError(f"default bot must be a bot: {effective_default}")
     if default_bot_handle is not None and default_bot is None:
         raise ValueError(f"unknown default bot: {effective_default}")
-    if services.settings.sandboxes_enabled:
+    if host_execution:
+        if sandbox_id:
+            raise ValueError("select either sandbox_id or host_execution, not both")
+        if not services.settings.sandbox_allow_host_execution:
+            raise ValueError("host execution is disabled by the operator")
+        if created_by is None or created_by.kind != "human":
+            raise ValueError("only the operator may create a host thread")
+    if services.settings.sandboxes_enabled and not host_execution:
         sandbox_id = sandbox_id or services.settings.sandbox_default_id
         if not sandbox_id:
             raise ValueError("sandbox mode requires an explicit or configured default sandbox")
@@ -150,7 +157,7 @@ async def create_thread(services, session: AsyncSession, *, title: str, handles:
     thread = Thread(title=effective_title, kind=kind, created_by_actor_id=created_by.id if created_by else None,
                     default_bot_actor_id=default_bot.id if default_bot else None,
                     working_directory=normalized_working_directory, external_ref=external_ref,
-                    sandbox_id=sandbox_id)
+                    sandbox_id=sandbox_id, host_execution=host_execution)
     session.add(thread)
     await session.flush()
     log.info("thread %s created: title=%r handles=%s default_bot=%s working_directory=%s tool_root=%s",

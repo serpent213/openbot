@@ -95,7 +95,8 @@ async def create(body: ThreadCreate, session: AsyncSession = Depends(get_session
     try:
         thread = await create_thread(services, session, title=body.title, handles=body.handles, created_by=you,
                                      default_bot_handle=body.default_bot_handle,
-                                     working_directory=body.working_directory, sandbox_id=body.sandbox_id)
+                                     working_directory=body.working_directory, sandbox_id=body.sandbox_id,
+                                     host_execution=body.host_execution)
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
     parts = await participants_for(session, [thread.id])

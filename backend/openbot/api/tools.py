@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from openbot.api.deps import get_services
+from openbot.api.sandboxes import validate_inspection_target
 from openbot.services import Services
 from openbot.skills import discover_skills
 
@@ -30,14 +31,14 @@ async def list_tools(services: Services = Depends(get_services)):
 
 
 @router.get("/skills")
-async def list_skills(sandbox_id: str | None = None, services: Services = Depends(get_services)):
+async def list_skills(sandbox_id: str | None = None, host_execution: bool = False,
+                      services: Services = Depends(get_services)):
     """Discovered skills for the bot editor's per-bot skill picker."""
     settings = services.settings
+    validate_inspection_target(settings, sandbox_id, host_execution)
     if sandbox_id:
         from openbot.api.sandboxes import worker_inspect
         return await worker_inspect(services, sandbox_id, "skills", {})
-    if settings.sandboxes_enabled:
-        raise HTTPException(409, "select sandbox_id for worker-side skill discovery")
     roots = [settings.workspace_root]
     state_dir = settings.state_dir
     if state_dir is not None and state_dir.resolve() != settings.workspace_root.resolve():
