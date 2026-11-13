@@ -21,7 +21,7 @@ def test_host_name(header, expected):
 
 
 def test_trusted_hosts_defaults_and_overrides():
-    plain = Settings(_env_file=None, public_url="https://openbot.lan.example")
+    plain = Settings(_env_file=None, PUBLIC_URL="https://openbot.lan.example")
     assert plain.trusted_hosts() == {"localhost", "127.0.0.1", "::1", "openbot.lan.example"}
     csv = Settings(_env_file=None, allowed_hosts="a.example, B.example.")
     assert {"a.example", "b.example"} <= csv.trusted_hosts()
