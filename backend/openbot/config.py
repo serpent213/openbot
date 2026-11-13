@@ -1,7 +1,9 @@
+import json
 import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from pydantic import (
     AliasChoices,
@@ -133,6 +135,10 @@ class Settings(BaseSettings):
     # JSON, so pydantic-settings must not try to json.loads() the raw env value before our
     # `_split_csv` validator runs.
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
+    # Host names the server answers to, besides loopback and PUBLIC_URL's host (see trusted_hosts).
+    # Anything else is refused, so a web page that rebinds its own DNS name to 127.0.0.1 cannot
+    # drive the API. A reverse proxy forwarding Host needs its other names here; "*" turns the check off.
+    allowed_hosts: Annotated[list[str], NoDecode] = []
     frontend_dist: Path | None = Path("frontend/dist")
     log_level: str = "INFO"
     # None until resolved: <database directory>/logs/openbot.log for a SQLite file database (so each
@@ -231,6 +237,22 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [p.strip() for p in v.split(",") if p.strip()]
         return v
+
+    @field_validator("allowed_hosts", mode="before")
+    @classmethod
+    def _split_hosts(cls, v):
+        # A JSON list (as deployment tooling writes lists) or CSV (as people write .env files).
+        if isinstance(v, str):
+            v = json.loads(v) if v.lstrip().startswith("[") else v.split(",")
+        return [h.strip().lower().rstrip(".") for h in v if h.strip()] if isinstance(v, list) else v
+
+    def trusted_hosts(self) -> frozenset[str] | None:
+        """Host names requests may carry, or None when the operator disabled the check with "*"."""
+        if "*" in self.allowed_hosts:
+            return None
+        public = urlsplit(self.public_url).hostname
+        return frozenset({"localhost", "127.0.0.1", "::1", *([public.lower()] if public else []),
+                          *self.allowed_hosts})
 
     @field_validator("bot_model", "openrouter_model", "ollama_base_url", mode="before")
     @classmethod

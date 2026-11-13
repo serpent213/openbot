@@ -12,7 +12,7 @@ async def test_serves_frontend_when_dist_exists(settings, services, tmp_path):
     (dist / "index.html").write_text("<h1>OpenBot</h1>")
     settings.frontend_dist = dist
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         assert "OpenBot" in (await c.get("/")).text
         assert (await c.get("/api/v1/health")).status_code == 200
 
@@ -27,7 +27,7 @@ async def test_spa_routes_fall_back_to_index_but_missing_assets_and_api_do_not(s
     (dist / "assets" / "app.js").write_text("console.log(1)")
     settings.frontend_dist = dist
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         for path in ("/inbox", "/bots/abc-123", "/threads/x?tab=usage"):
             r = await c.get(path)
             assert r.status_code == 200 and "OpenBot" in r.text, path

@@ -648,6 +648,7 @@ as `model_settings.reasoning_effort`). It applies to OpenAI, xAI, OpenRouter and
 | `OPENBOT_API_KEY` | *(unset)* | When set, every API route except `/health` and the MCP OAuth callback requires header `X-API-Key: <value>`. |
 | `PUBLIC_URL` | `http://127.0.0.1:8000` | Where browsers reach this server; builds the OAuth redirect URI for remote MCP servers. While it is this local default, it follows the port the backend CLI was started on (e.g. `:8001` under `make app`); set it explicitly for any other address. |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated list of allowed origins. |
+| `ALLOWED_HOSTS` | *(unset)* | Further host names requests may carry in `Host`, comma-separated or a JSON list. Loopback names and `PUBLIC_URL`'s host are always allowed; any other host gets 400, so a web page cannot reach the server by rebinding its own DNS name to 127.0.0.1. Add the names a reverse proxy forwards, or the address you open from another machine. `*` turns the check off. |
 | `WORKSPACE_ROOT` | `./workspace` | Default thread working directory and the confinement root for file tools. `run_shell` only *starts* there. |
 | `SHELL_USER` | *(unset)* | Run `run_shell` commands as this user with a minimal environment, so they don't see the server's keys. Needs `OPENBOT_API_KEY` and a server running as root; `compose.yaml` sets it. |
 | `TOOLS_DIR` | `./tools` | Directory of plugin tool modules, loaded at startup. |

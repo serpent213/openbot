@@ -40,6 +40,7 @@ from openbot.api import settings as settings_api
 from openbot.api import setup as setup_api
 from openbot.api import workspace as workspace_api
 from openbot.api.deps import require_api_key
+from openbot.api.hosts import HostAllowlist
 from openbot.config import Settings, get_settings
 from openbot.db.session import (
     create_all,
@@ -280,6 +281,8 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     app.state.settings = settings
     app.state.services = services
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"])
+    # Added last, so it runs first: a request for a foreign host name gets nothing, not even CORS.
+    app.add_middleware(HostAllowlist, hosts=settings.trusted_hosts())
 
     public = APIRouter(prefix="/api/v1")
 

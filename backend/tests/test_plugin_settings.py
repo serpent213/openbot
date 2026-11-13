@@ -120,7 +120,7 @@ async def test_settings_api_auth_scope_and_conflict(config_store):
     services = store.services
     services.settings.openbot_api_key = "operator"
     async with AsyncClient(
-        transport=ASGITransport(app=create_app(services=services)), base_url="http://test"
+        transport=ASGITransport(app=create_app(services=services)), base_url="http://localhost"
     ) as client:
         assert (await client.get("/api/v1/plugins")).status_code == 401
         client.headers["X-API-Key"] = "operator"

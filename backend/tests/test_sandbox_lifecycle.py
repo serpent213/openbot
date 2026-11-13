@@ -135,7 +135,7 @@ async def test_concurrent_allocation_and_uid_alias_are_exclusive(settings, tmp_p
     settings.sandbox_resources["second"] = SandboxResource(socket_path="/second", uid=23456)
     settings.sandbox_resources["alias"] = SandboxResource(socket_path="/second", uid=23456)
     app = create_app(settings, services=services)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test",
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost",
                            headers={"X-API-Key": "test-only"}) as client:
         replies = await asyncio.gather(*[
             client.post("/api/v1/sandboxes", json={"name": name, "resource": "second"})

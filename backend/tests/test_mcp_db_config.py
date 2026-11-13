@@ -68,7 +68,7 @@ async def _app(settings, tmp_path, file_servers=None):
 
 async def test_api_manages_stdio_and_http_servers_with_masked_secrets(settings, tmp_path):
     app, _services = await _app(settings, tmp_path)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         r = await c.post("/api/v1/mcp/servers", json={"name": "stub", "command": sys.executable, "args": [STUB], "env": {"GREETING": "hi"}})
         assert r.status_code == 201, r.text
         for _ in range(100):
@@ -104,7 +104,7 @@ async def test_api_manages_stdio_and_http_servers_with_masked_secrets(settings, 
 
 async def test_file_servers_appear_after_import_and_the_file_is_then_ignored(settings, tmp_path):
     app, _services = await _app(settings, tmp_path, {"filed": {"url": "https://filed.example.invalid/mcp", "enabled": False}})
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         rows = (await c.get("/api/v1/mcp/servers")).json()
         assert [r["name"] for r in rows] == ["filed"] and rows[0]["status"] == "disabled" and rows[0]["source"] == "db"
         assert (await c.delete("/api/v1/mcp/servers/filed")).status_code == 204      # imported servers are ordinary rows
@@ -112,7 +112,7 @@ async def test_file_servers_appear_after_import_and_the_file_is_then_ignored(set
     fresh = settings.model_copy()
     services2 = await build_test_services(fresh)
     app2 = create_app(fresh, services=services2)
-    async with LifespanManager(app2), AsyncClient(transport=ASGITransport(app=app2), base_url="http://test") as c:
+    async with LifespanManager(app2), AsyncClient(transport=ASGITransport(app=app2), base_url="http://localhost") as c:
         assert (await c.get("/api/v1/mcp/servers")).json() == []
 
 

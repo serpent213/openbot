@@ -240,7 +240,7 @@ async def test_unknown_outcomes_quarantine_and_survive_restart(settings, tmp_pat
 async def test_api_binding_allocation_and_quarantine(settings, tmp_path, monkeypatch):
     services, box = await configure(settings, str(tmp_path / "missing.sock"), monkeypatch)
     app = create_app(settings, services=services)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         assert (await client.get("/api/v1/sandboxes")).status_code == 401
         client.headers["X-API-Key"] = "test-only"
         assert (await client.post("/api/v1/sandboxes", json={"name": "second", "resource": "slot"})).status_code == 409

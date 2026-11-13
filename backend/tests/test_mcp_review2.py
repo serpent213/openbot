@@ -41,7 +41,7 @@ async def test_listing_shows_the_stored_url_not_the_expanded_one(settings, tmp_p
     monkeypatch.setenv("MCP_HOST", "internal.example.com")
     services = await build_test_services(settings)
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         r = await c.post("/api/v1/mcp/servers", json={"name": "corp", "url": "https://${MCP_HOST}/mcp", "headers": {"Authorization": "Bearer k"}})
         assert r.status_code == 201, r.text
         assert r.json()["url"] == "https://${MCP_HOST}/mcp"                   # what the edit dialog must round-trip
@@ -69,7 +69,7 @@ async def test_a_bad_credential_key_does_not_take_the_boot_down(settings, tmp_pa
     settings.mcp_token_key = "not-a-fernet-key"
     services = await build_test_services(settings)
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         assert (await c.get("/api/v1/health")).status_code == 200
         assert (await c.get("/api/v1/mcp/servers")).json() == []
         assert (await c.post("/api/v1/mcp/servers", json={"name": "s", "command": sys.executable, "args": [STUB]})).status_code == 201
@@ -81,13 +81,13 @@ async def test_a_bad_credential_key_does_not_take_the_boot_down(settings, tmp_pa
 async def test_a_bad_key_with_stored_secrets_errors_those_servers_not_the_boot(settings, tmp_path):
     good = await build_test_services(settings)
     app = create_app(settings, services=good)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         assert (await c.post("/api/v1/mcp/servers", json={"name": "secret", "url": "https://x.example/mcp", "headers": {"Authorization": "Bearer k"}})).status_code == 201
     broken = settings.model_copy()
     broken.mcp_token_key = "not-a-fernet-key"
     services = await build_test_services(broken)
     app2 = create_app(broken, services=services)
-    async with LifespanManager(app2), AsyncClient(transport=ASGITransport(app=app2), base_url="http://test") as c:
+    async with LifespanManager(app2), AsyncClient(transport=ASGITransport(app=app2), base_url="http://localhost") as c:
         assert (await c.get("/api/v1/health")).status_code == 200
         r = await c.get("/api/v1/mcp/servers")
         assert r.status_code == 503 and "MCP_TOKEN_KEY" in r.json()["detail"]
@@ -96,7 +96,7 @@ async def test_a_bad_key_with_stored_secrets_errors_those_servers_not_the_boot(s
 async def test_fresh_install_does_not_write_a_key_file_until_a_secret_needs_it(settings, tmp_path):
     services = await build_test_services(settings)
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         assert (await c.get("/api/v1/mcp/servers")).json() == []
         assert (await c.post("/api/v1/mcp/servers", json={"name": "s", "command": sys.executable, "args": [STUB]})).status_code == 201
         assert not settings.secret_key_file.exists()                                        # no secret yet
@@ -107,7 +107,7 @@ async def test_fresh_install_does_not_write_a_key_file_until_a_secret_needs_it(s
 async def test_patch_returns_promptly_and_connects_in_the_background(settings, tmp_path):
     services = await build_test_services(settings)
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         assert (await c.post("/api/v1/mcp/servers", json={"name": "stub", "command": sys.executable, "args": [STUB]})).status_code == 201
         t0 = asyncio.get_running_loop().time()
         r = await c.patch("/api/v1/mcp/servers/stub", json={"enabled": False})
@@ -144,7 +144,7 @@ async def test_bot_editor_data_lists_granted_tools_of_a_disconnected_server(sett
     ungrant them: GET /bots/{id} returns them, and /tools?include=<names> reports which are unavailable."""
     services = await build_test_services(settings)
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         assert (await c.post("/api/v1/mcp/servers", json={"name": "stub", "command": sys.executable, "args": [STUB]})).status_code == 201
         for _ in range(100):
             if (await c.get("/api/v1/mcp/servers")).json()[0]["status"] == "connected":

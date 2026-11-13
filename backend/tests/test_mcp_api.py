@@ -33,7 +33,7 @@ async def test_servers_are_listed_with_status_and_tools_and_show_up_in_the_tool_
         "remote": {"url": "https://mcp.example.invalid/mcp"},          # OAuth, no credentials: waits for the operator
         "off": {"url": "https://x/mcp", "enabled": False},
     })
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         rows = {r["name"]: r for r in (await c.get("/api/v1/mcp/servers")).json()}
         assert rows["stub"]["status"] == "connected" and rows["stub"]["tools"] == ["stub__add", "stub__echo", "stub__fail"] and rows["stub"]["oauth"] is False
         assert rows["remote"]["status"] == "needs_auth" and rows["remote"]["oauth"] is True and rows["remote"]["tools"] == []
@@ -66,7 +66,7 @@ async def test_connect_returns_the_authorization_url_and_the_callback_completes_
         got["code"], _ = await callback()
         st.status, st.tools = "connected", ["remote__x"]
 
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         monkeypatch.setattr(services.mcp, "_open", fake_open)
         r = await c.post("/api/v1/mcp/servers/remote/connect")
         assert r.json() == {"status": "authorizing", "authorization_url": "https://auth.example/authorize?client_id=c&state=st-1"}
@@ -87,7 +87,7 @@ async def test_connect_returns_the_authorization_url_and_the_callback_completes_
 async def test_callback_requires_no_api_key(settings, tmp_path):
     settings.openbot_api_key = "secret"
     app, _ = await _app(settings, tmp_path, {})
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         assert (await c.get("/api/v1/mcp/servers")).status_code == 401
         assert (await c.get("/api/v1/mcp/oauth/callback", params={"code": "x", "state": "none"})).status_code == 400   # reached, rejected on state
 

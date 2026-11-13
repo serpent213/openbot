@@ -42,7 +42,7 @@ async def test_callback_escapes_what_the_authorization_server_sends(settings, tm
     settings.mcp_config.write_text(json.dumps({"mcpServers": {"remote": {"url": "https://mcp.example.invalid/mcp"}}}))
     services = await build_test_services(settings)
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         redirect, callback = services.mcp.flows.handlers("remote", allow=lambda: True)
         waiter = asyncio.ensure_future(callback())
         await asyncio.sleep(0)
@@ -230,7 +230,7 @@ async def test_bot_referencing_a_disconnected_mcp_tool_can_still_be_edited_and_r
     settings.mcp_config.write_text(json.dumps({"mcpServers": {"remote": {"url": "https://mcp.example.invalid/mcp"}}}))
     services = await build_test_services(settings)
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         assert (await c.get("/api/v1/mcp/servers")).json()[0]["status"] == "needs_auth"
         body = {"handle": "eng", "name": "E", "provider": "openai", "model": "gpt-5.5", "tool_names": ["remote__create_issue"]}
         r = await c.post("/api/v1/bots", json=body)

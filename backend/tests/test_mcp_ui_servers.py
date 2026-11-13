@@ -44,7 +44,7 @@ async def _app(settings, tmp_path, file_servers=None):
 
 async def test_add_list_and_remove_a_remote_server_from_the_api(settings, tmp_path):
     app, _services = await _app(settings, tmp_path)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         r = await c.post("/api/v1/mcp/servers", json={"name": "linear", "url": "https://mcp.example.invalid/mcp"})
         assert r.status_code == 201, r.text
         s = r.json()
@@ -65,10 +65,10 @@ async def test_add_list_and_remove_a_remote_server_from_the_api(settings, tmp_pa
 async def test_added_servers_survive_a_restart(settings, tmp_path):
     fresh = settings.model_copy()
     app, _services = await _app(settings, tmp_path)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         assert (await c.post("/api/v1/mcp/servers", json={"name": "linear", "url": "https://mcp.example.invalid/mcp"})).status_code == 201
     services2 = await build_test_services(fresh)
     app2 = create_app(fresh, services=services2)
-    async with LifespanManager(app2), AsyncClient(transport=ASGITransport(app=app2), base_url="http://test") as c:
+    async with LifespanManager(app2), AsyncClient(transport=ASGITransport(app=app2), base_url="http://localhost") as c:
         rows = (await c.get("/api/v1/mcp/servers")).json()
         assert [r["name"] for r in rows] == ["linear"] and rows[0]["source"] == "db"

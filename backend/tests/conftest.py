@@ -170,5 +170,5 @@ async def services(settings, scripts) -> Services:
 @pytest_asyncio.fixture
 async def client(settings, services):
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         yield c

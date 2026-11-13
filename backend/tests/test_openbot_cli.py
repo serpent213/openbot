@@ -42,8 +42,8 @@ def _client(handler) -> OpenBotClient:
         return resp
 
     transport = httpx.MockTransport(_wrap)
-    http_client = httpx.Client(base_url="http://test", transport=transport)
-    return OpenBotClient(base_url="http://test", api_key="k", client=http_client)
+    http_client = httpx.Client(base_url="http://localhost", transport=transport)
+    return OpenBotClient(base_url="http://localhost", api_key="k", client=http_client)
 
 
 def _json_response(payload, status=200):

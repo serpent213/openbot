@@ -89,7 +89,7 @@ async def test_plugin_routes_inherit_auth_and_reject_collisions(monkeypatch, ser
     services.settings.plugin_modules = [module]
     services.settings.openbot_api_key = "secret"
     app = create_app(services.settings, services)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         assert (await client.get("/api/v1/example")).status_code == 401
         assert (await client.get("/api/v1/example", headers={"X-API-Key": "secret"})).json() == {
             "ok": True

@@ -55,7 +55,7 @@ async def test_catalog_install_is_disabled_and_rejects_unknown_or_duplicate(sett
     settings.mcp_token_key_file = tmp_path / "key"
     services = await build_test_services(settings)
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         entries = (await client.get("/api/v1/mcp/catalog")).json()
         assert len(entries) >= 30
         response = await client.post(

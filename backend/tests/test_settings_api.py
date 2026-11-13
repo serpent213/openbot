@@ -73,7 +73,7 @@ async def test_stored_overrides_are_applied_at_startup(settings, tmp_path):
     fresh = settings.model_copy()          # what a new process would load from the environment
     services = await build_test_services(settings)
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         assert (await c.patch("/api/v1/settings", json={"max_bot_hops": 3})).status_code == 200
     # Same database, new process: the environment default is 20, the stored override wins.
     services2 = await build_test_services(fresh)

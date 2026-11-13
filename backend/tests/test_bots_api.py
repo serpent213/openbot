@@ -99,7 +99,7 @@ async def test_api_key_required(settings, services):
     from openbot.main import create_app
     settings.openbot_api_key = "secret"
     app = create_app(settings, services=services)
-    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    async with LifespanManager(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
         assert (await c.get("/api/v1/bots")).status_code == 401
         assert (await c.get("/api/v1/bots", headers={"X-API-Key": "secret"})).status_code == 200
         assert (await c.get("/api/v1/bots?api_key=secret")).status_code == 200

@@ -25,7 +25,7 @@ async def test_api_memory_opt_in_is_false_by_default_and_snapshotted_on_new_runs
     actor = BotActor(services.actors, bot.id)
     try:
         async with AsyncClient(transport=ASGITransport(app=create_app(services=services)),
-                               base_url="http://test", headers={"X-API-Key": "test-only"}) as client:
+                               base_url="http://localhost", headers={"X-API-Key": "test-only"}) as client:
             listing = (await client.get("/api/v1/sandboxes")).json()
             assert listing["sandboxes"][0]["share_global_memory"] is False
             async with services.session_factory() as session:
