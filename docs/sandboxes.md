@@ -373,12 +373,28 @@ The operator owns infrastructure and live pilot execution. Before using real sta
 8. Retire a slot and verify it cannot run or be allocated again. Quarantine data;
    cleanup/reconciliation and token revocation are deliberate operator work.
 
-Automated tests use real sockets/subprocesses and fake CLIs under **one UID**, with
-explicit test-only identity/namespace bypasses and **fake cgroups**. They test routing,
+The pytest suite uses real sockets/subprocesses and fake CLIs under **one UID**, with
+explicit test-only identity/namespace bypasses and **fake cgroups**. It tests routing,
 admission, concurrent operations, protocol outcomes, stream/session behavior, scoped
-state and cleanup control flow; they do **not** prove actual cross-UID, kernel cgroup,
-namespace, filesystem or network isolation. Pi adapter tests use the installed
-sibling plugin with a fake executable, not a live provider login/continuation pilot.
+state and cleanup control flow. Pi adapter tests use the installed sibling plugin with
+a fake executable, not a live provider login/continuation pilot.
+
+`nix/tests/sandboxes.nix` is a NixOS VM test of `nix/sandboxes.nix` with two worker
+UIDs on a real kernel. It drives the worker RPC as the controller UID
+(`nix/tests/sandbox_client.py`) and checks pilot steps 1, 4 and 5: slot identity and
+scrubbed environment, private homes and controller state, hidden controller processes,
+socket access for the controller only, refused cgroup migration and cgroupfs remount,
+cleanup of `setsid`/double-fork descendants, cancelling one of two parallel operations,
+and whole-run cleanup when the controller connection drops. It needs a Linux builder
+with KVM and a Python environment containing this backend:
+
+```nix
+import ./nix/tests/sandboxes.nix { inherit pkgs; runtime = python.withPackages (_: [ openbot ]); }
+```
+
+Neither suite covers site policy (firewall, Nix daemon, proc/filesystem masks of the
+actual container), Proxmox/LXC prerequisites or real CLI logins; check those on the
+deployment.
 
 Deferred: audited server plugin/MCP adapters, scoped memory/scratchpad management GUI,
 shared OAuth/refresh broker, detachable identity storage, deployment reconciliation,
