@@ -123,7 +123,13 @@ The whole system is one loop: post, route, enqueue, pick, run, reply, post.
   fixes" used to wake both at once, and QA had nothing to test. Human messages keep the full fan-out.
 - A **human** message with no mention goes to the thread's default bot, falling back to
   `@chief_of_staff`. A message with no mention in a thread that has exactly one bot goes to that bot.
-- A **bot** message with no mention wakes nobody. This is how a bot ends a conversation.
+- A **bot** message that wakes no other bot goes to the thread's default bot (same fallback as
+  above). That covers no mention at all, and mentions that cannot act: an unknown handle, a disabled
+  bot, the sender itself, or a non-bot actor such as `@you`. A delegate that forgets to hand back
+  therefore returns to the thread lead, not to the bot that delegated to it, if that bot is not the
+  lead. Only the default bot itself wakes nobody with such a reply, as does any bot when neither a
+  default bot nor `@chief_of_staff` exists. This is how the thread lead ends a conversation or
+  hands it back to the human.
 - A **bot** message hands off only when the bot has nothing else waiting in the thread. If the
   sender still has `queued` `message` items in that thread (mail that arrived while it was
   working), its mentions are **held**: the reply is posted, the target added as a participant, and
@@ -386,8 +392,9 @@ These hold in the code today unless marked, and the target architecture keeps al
 7. A run reads thread state only at `_prepare`; it writes thread state only by posting messages.
 8. A bot's reply wakes only the bots it mentions, and only if the bot has no queued mail left in
    that thread; otherwise the hand-off is held and delivered automatically once that mail is
-   handled, superseded only if a later reply reaches the same target for real. An unmentioned bot
-   reply ends the exchange.
+   handled, superseded only if a later reply reaches the same target for real. A bot reply that
+   wakes no other bot goes to the thread's default bot; only the default bot's own reply ends the
+   exchange.
 9. A message from the system wakes nobody.
 10. Memory is bot-scoped and must contain no thread-scoped facts. *(Instructed, not mechanically enforced: G6.)*
 11. Bot-to-bot hops are bounded by `MAX_BOT_HOPS` and reset by any human message.

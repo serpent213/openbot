@@ -271,7 +271,9 @@ semantics. Claude's restricted file tools and Codex's command sandbox differ.
 
 Coding bots retain normal Openbot identities and participate through `@mentions`.
 Internal bots can update boards/ledgers and delegate implementation to them; coding
-bots can mention the coordinator in their final reply. They use their own toolsets,
+bots can mention the coordinator in their final reply. A final reply that mentions
+no bot goes to the thread's default bot, so make the coordinator the default bot.
+They use their own toolsets,
 not Openbot's tools, skills or configured MCP servers. This API does not yet provide
 interactive approval forwarding or a tool bridge. Auth belongs to the CLI under the
 service user's account; Openbot checks login status without reading its credentials.
