@@ -62,6 +62,11 @@ describe("backendLaunch", () => {
       "--exclude-llm-call-details", "--host", "127.0.0.1", "--port", "8000"]);
   });
 
+  it("starts the backend with the launch's API key", () => {
+    expect(backendLaunch({ ...unix, env: {}, apiKey: "launch-key" }).env.OPENBOT_API_KEY).toBe("launch-key");
+    expect(backendLaunch({ ...unix, env: {} }).env.OPENBOT_API_KEY).toBeUndefined();
+  });
+
   it("lets values from the environment win, except the venv location", () => {
     const env = { DATABASE_URL: "postgresql://db/openbot", WORKSPACE_ROOT: "/srv/ws", SECRET_KEY_FILE: "/etc/openbot/secret.key", TOOLS_DIR: "/srv/tools", LOG_FILE: "/var/log/openbot.log", UV_PROJECT_ENVIRONMENT: "/tmp/elsewhere" };
     const launch = backendLaunch({ ...unix, env });

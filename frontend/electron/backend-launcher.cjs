@@ -56,10 +56,12 @@ function sqliteUrl(file) {
  * UV_PROJECT_ENVIRONMENT: `uv run --project` would otherwise build the venv inside the app's
  * resources, which an installed (and on macOS signed) app cannot reliably write to.
  */
-function backendLaunch({ resourcesPath, userDataDir, port = "8000", env = process.env, platform = process.platform }) {
+function backendLaunch({ resourcesPath, userDataDir, port = "8000", env = process.env, platform = process.platform, apiKey }) {
   const p = pathFor(platform);
   const rootDirectory = env.OPENBOT_ROOT_DIRECTORY || "";
   const launchEnv = { ...env, OPENBOT_RESOURCES: resourcesPath, OPENBOT_USER_DATA: userDataDir, OPENBOT_BACKEND_PORT: port };
+  // See backendApiKey in main.cjs. The environment outranks a .env file, so this is the key in force.
+  if (apiKey) launchEnv.OPENBOT_API_KEY = apiKey;
   const dirs = [p.join(userDataDir, "logs")];
   if (rootDirectory) {
     dirs.push(rootDirectory, p.join(rootDirectory, ".openbot"));

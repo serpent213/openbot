@@ -62,6 +62,15 @@ const request = (init: { url: string; method?: string; headers?: Record<string, 
   ({ method: "GET", body: null, ...init, headers: new Headers(init.headers ?? {}) }) as unknown as Request;
 
 describe("API proxy", () => {
+  it("sends the bundled backend's key in place of any key from the renderer", async () => {
+    const { net, calls } = fakeNet();
+    const handler = createAppProtocolHandler({ apiOrigin: "http://127.0.0.1:8000", distDir, net, apiKey: "launch-key" });
+    void handler(request({ url: "app://openbot/api/v1/events?thread=t", headers: { "X-API-Key": "stale", accept: "text/event-stream" } }));
+    await vi.waitFor(() => expect(calls[0]?.ended).toBe(true));
+    expect(calls[0].options.url).toBe("http://127.0.0.1:8000/api/v1/events?thread=t");
+    expect(calls[0].headers).toEqual({ accept: "text/event-stream", "X-API-Key": "launch-key" });
+  });
+
   it("forwards method, headers and body, and skips hop-by-hop headers", async () => {
     const { net, calls } = fakeNet();
     const body = new Blob(['{"handle":"qa"}']).stream();

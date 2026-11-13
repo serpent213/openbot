@@ -1,4 +1,5 @@
 const { app, BrowserWindow, dialog, Menu, net, protocol, session, shell } = require("electron");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
@@ -17,6 +18,12 @@ const configuredOrigin = originOf(appUrl);
 const cliBackendUrl = parseBackendUrl();
 const apiOrigin = resolveApiOrigin(undefined, cliBackendUrl);
 const usesExternalBackend = Boolean(cliBackendUrl || process.env.OPENBOT_URL || process.env.OPENBOT_API_URL);
+// The bundled backend always runs with an API key: the operator's, or a fresh one per launch.
+// Without one, any local process or a DNS-rebinding web page could drive the API, and with it
+// tools such as run_shell. Only this process holds the key; the app:// proxy adds it to /api.
+const backendApiKey = !isDevelopment && !usesExternalBackend
+  ? process.env.OPENBOT_API_KEY || crypto.randomBytes(24).toString("hex")
+  : undefined;
 // Packaged: serve dist/ and proxy /api from app://openbot (see scheme.cjs). Registration has to
 // happen before "ready", and it is harmless when the app ends up loading Vite or OPENBOT_URL.
 const servesPackagedUi = appUrl === APP_URL;
@@ -34,7 +41,7 @@ const userDataDir = app.getPath("userData");
 const backendLogPath = path.join(userDataDir, "logs", "backend-launcher.log");
 function startBackend() {
   if (isDevelopment || usesExternalBackend) return;
-  const launch = backendLaunch({ resourcesPath: process.resourcesPath, userDataDir, port: backendPort });
+  const launch = backendLaunch({ resourcesPath: process.resourcesPath, userDataDir, port: backendPort, apiKey: backendApiKey });
   for (const dir of launch.dirs) fs.mkdirSync(dir, { recursive: true });
   // Keep the backend's output: with stdio ignored, a backend that dies at startup is
   // indistinguishable from one that is slow, and the timeout dialog can point here.
@@ -114,7 +121,7 @@ app.whenReady().then(async () => {
   if (isDevelopment && process.platform === "darwin") app.dock?.setIcon(appIconPath);
   const csp = contentSecurityPolicy(configuredOrigin, apiOrigin);
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [csp] } }));
-  if (servesPackagedUi) protocol.handle(APP_SCHEME, createAppProtocolHandler({ apiOrigin, distDir, net }));
+  if (servesPackagedUi) protocol.handle(APP_SCHEME, createAppProtocolHandler({ apiOrigin, distDir, net, apiKey: backendApiKey }));
   startBackend();
   // Open the window right away so the wait is visible: a cold first launch can spend a long
   // time building the backend venv before /api/v1/health answers.

@@ -51,11 +51,15 @@ function routeAppRequest(rawUrl, { apiOrigin, distDir, fileExists = isExistingFi
  * API call hangs. Here the body stream's `cancel` -- which Electron invokes when the renderer
  * drops the request -- aborts the upstream request instead.
  */
-async function proxyApiRequest(net, url, request) {
+async function proxyApiRequest(net, url, request, apiKey) {
   const upstream = net.request({ url, method: request.method, redirect: "manual" });
   for (const [name, value] of request.headers) {
-    if (!SKIPPED_REQUEST_HEADERS.has(name.toLowerCase())) upstream.setHeader(name, value);
+    const lower = name.toLowerCase();
+    if (SKIPPED_REQUEST_HEADERS.has(lower) || (apiKey && lower === "x-api-key")) continue;
+    upstream.setHeader(name, value);
   }
+  // The bundled backend's per-launch key lives in this process only; the renderer never sees it.
+  if (apiKey) upstream.setHeader("X-API-Key", apiKey);
   request.signal?.addEventListener("abort", () => upstream.abort(), { once: true });
   const response = new Promise((resolve, reject) => {
     upstream.on("error", reject);
@@ -100,11 +104,11 @@ function toResponse(incoming, upstream, method) {
  * be exercised without Electron. Static files come from dist via net.fetch on a file: URL; the
  * session.webRequest hook in main.cjs sees these responses and attaches the CSP header.
  */
-function createAppProtocolHandler({ apiOrigin, distDir, net }) {
+function createAppProtocolHandler({ apiOrigin, distDir, net, apiKey }) {
   return (request) => {
     const route = routeAppRequest(request.url, { apiOrigin, distDir });
     if (route.kind === "reject") return new Response(null, { status: route.status });
-    if (route.kind === "api") return proxyApiRequest(net, route.url, request);
+    if (route.kind === "api") return proxyApiRequest(net, route.url, request, apiKey);
     return net.fetch(pathToFileURL(route.path).toString());
   };
 }
