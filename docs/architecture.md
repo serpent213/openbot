@@ -261,7 +261,10 @@ only `waiting_human` runs keep theirs.
 Middleware bounds each run: prompt caching breakpoints, `ModelCallLimitMiddleware`
 (`MAX_MODEL_CALLS_PER_RUN`, default 40, overridable per bot in `model_settings.max_model_calls`),
 `ContextEditingMiddleware` that blanks old tool results past `CONTEXT_TRIGGER_TOKENS` (60k), and
-`HumanInTheLoopMiddleware` for tools listed in `approval_tools`.
+`HumanInTheLoopMiddleware` for tools listed in `approval_tools`. `create_bot`,
+`update_bot_instructions` and `update_bot_description` always need approval, whatever the bot's list
+says (`runner.ALWAYS_APPROVED`): otherwise a prompt-injected bot could create a bot with `run_shell`
+or a coding-CLI provider, or rewrite what other bots are told, and act through it.
 
 **Gap G4 (closed).** Trigger messages used to be unmarked, so in a thread where several bots post
 between two of this bot's runs, or where several triggers were coalesced (§5), the model had to guess

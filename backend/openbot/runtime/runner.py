@@ -148,6 +148,18 @@ def _preview(value: Any, cap: int = LOG_PREVIEW_CAP) -> str:
     return text if len(text) <= cap else text[:cap] + f"... [{len(text) - cap} more chars]"
 
 
+# Tools that decide which bots exist and what they are told are always the operator's call,
+# whatever the bot's own approval list says. Otherwise a prompt-injected bot could create a bot
+# with run_shell (or a coding-CLI provider) and no approvals, or rewrite another bot's
+# instructions or roster description, and act through it. The approval shows the full arguments.
+ALWAYS_APPROVED = ("create_bot", "update_bot_instructions", "update_bot_description")
+
+
+def approval_gated(profile) -> list[str]:
+    configured = list(profile.approval_tools or ())
+    return configured + [t for t in ALWAYS_APPROVED if t in (profile.tool_names or ()) and t not in configured]
+
+
 def normalize_interrupt(value: Any) -> dict:
     if isinstance(value, dict):
         if value.get("kind") == "question":
@@ -823,11 +835,12 @@ class Runner:
                 ]
             ),
         ]
-        if p.approval_tools:
+        gated = approval_gated(p)
+        if gated:
             middleware.append(
                 HumanInTheLoopMiddleware(
                     interrupt_on={
-                        t: {"allowed_decisions": ["approve", "reject"]} for t in p.approval_tools
+                        t: {"allowed_decisions": ["approve", "reject"]} for t in gated
                     },
                     description_prefix="Tool execution requires approval",
                 )

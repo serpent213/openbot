@@ -251,6 +251,39 @@ async def test_tool_approval(settings):
     )
 
 
+async def test_bot_management_tools_always_need_approval(settings):
+    """A bot with an empty approval list still cannot create a bot without the operator."""
+    services, _eng, _t, run = await make(
+        settings,
+        {"eng": [ai(tool_calls=[{"name": "create_bot", "id": "c1", "type": "tool_call",
+                                 "args": {"handle": "shell", "name": "Shell", "tool_names": ["run_shell"]}}]),
+                 ai("done")]},
+        tool_names=["create_bot"],
+        approval_tools=[],
+    )
+    await services.runner.execute(run.id)
+    run = await get(services, Run, run.id)
+    assert run.status == "waiting_human" and run.interrupt["actions"][0]["name"] == "create_bot"
+    assert run.interrupt["actions"][0]["args"]["tool_names"] == ["run_shell"]
+    async with services.session_factory() as s:
+        assert (await s.execute(select(Actor).where(Actor.handle == "shell"))).scalar_one_or_none() is None
+    await services.runner.execute(
+        run.id, resume=Command(resume={"decisions": [{"type": "reject"}]})
+    )
+    async with services.session_factory() as s:
+        assert (await s.execute(select(Actor).where(Actor.handle == "shell"))).scalar_one_or_none() is None
+
+
+def test_approval_gated_adds_bot_management_tools_once():
+    from types import SimpleNamespace
+
+    from openbot.runtime.runner import approval_gated
+    p = SimpleNamespace(tool_names=["create_bot", "update_bot_instructions", "read_bot_instructions", "run_shell"],
+                        approval_tools=["run_shell", "create_bot"])
+    assert approval_gated(p) == ["run_shell", "create_bot", "update_bot_instructions"]
+    assert approval_gated(SimpleNamespace(tool_names=["run_shell"], approval_tools=[])) == []
+
+
 async def test_failure_posts_system_message(settings):
     services, eng, t, run = await make(settings, {"eng": [RuntimeError("provider down")]})
     await services.runner.execute(run.id)
