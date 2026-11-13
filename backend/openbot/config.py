@@ -17,6 +17,8 @@ from pydantic import (
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
+from openbot.api.csp import DEFAULT_POLICY as CSP_DEFAULT_POLICY
+
 # PUBLIC_URL's local default; a value equal to it is treated as unset (see the validators below).
 LOCAL_PUBLIC_URL = "http://127.0.0.1:8000"
 # Shared regex for validating Telegram Bot API tokens (format: <bot_id>:<token>).
@@ -139,6 +141,9 @@ class Settings(BaseSettings):
     # Anything else is refused, so a web page that rebinds its own DNS name to 127.0.0.1 cannot
     # drive the API. A reverse proxy forwarding Host needs its other names here; "*" turns the check off.
     allowed_hosts: Annotated[list[str], NoDecode] = []
+    # Sent with every response (see api/csp.py). Replace it to load the UI's assets from elsewhere;
+    # an empty value sends none.
+    content_security_policy: str = CSP_DEFAULT_POLICY
     frontend_dist: Path | None = Path("frontend/dist")
     log_level: str = "INFO"
     # None until resolved: <database directory>/logs/openbot.log for a SQLite file database (so each

