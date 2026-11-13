@@ -57,7 +57,7 @@ function MainApp() {
             <Route path="/bots" element={<BotsPage />} />
             <Route path="/bots/new" element={<BotEditorPage />} />
             <Route path="/bots/:id" element={<BotPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings/*" element={<SettingsPage />} />
             <Route path="/scheduled" element={<ScheduledPage />} />
             {pluginPages.map(({ path, component: Page }) => <Route key={path} path={path} element={<Page />} />)}
           </Route>

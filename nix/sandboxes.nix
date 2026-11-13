@@ -11,6 +11,11 @@ in {
     enable = lib.mkEnableOption "preprovisioned Openbot sandbox workers";
     poolSize = lib.mkOption { type = lib.types.ints.positive; default = 16; };
     userPrefix = lib.mkOption { type = lib.types.str; default = "openbot-sbx"; };
+    resourceInventory = lib.mkOption {
+      type = lib.types.attrs;
+      readOnly = true;
+      description = "Generated controller SANDBOX_RESOURCES inventory; names, sockets and UIDs match the units.";
+    };
     uidBase = lib.mkOption {
       type = lib.types.ints.positive;
       description = "Explicit collision-free stable UID/GID base, compatible with the host/LXC mapping.";
@@ -35,6 +40,9 @@ in {
     };
   };
   config = lib.mkIf cfg.enable {
+    services.openbot.sandboxes.resourceInventory = lib.listToAttrs (map (slot:
+      lib.nameValuePair slot.name { inherit (slot) uid; socket_path = "/run/${slot.name}/worker.sock"; }
+    ) slots);
     assertions = [{
       assertion = config.users.users.${cfg.controllerUser}.uid == cfg.controllerUid;
       message = "Openbot sandbox controller requires an existing account with the specified stable UID.";

@@ -43,7 +43,8 @@ def validate_bot(bot, settings=None):
 
 async def quarantine(services, sandbox_id):
     async with services.session_factory() as session:
-        await session.execute(update(Sandbox).where(Sandbox.id == sandbox_id).values(state="quarantined"))
+        # Explicit maintenance owns the final state while it proves whole-worker cleanup.
+        await session.execute(update(Sandbox).where(Sandbox.id == sandbox_id, Sandbox.state != "clearing").values(state="quarantined"))
         await session.commit()
 
 
@@ -55,7 +56,7 @@ async def recover(services):
         for item in pending:
             item.state = "unknown"
         rows = (await session.scalars(select(Sandbox).where(
-            (Sandbox.active_run_id.is_not(None)) | Sandbox.id.in_(ids)))).all()
+            (Sandbox.active_run_id.is_not(None)) | (Sandbox.state == "clearing") | Sandbox.id.in_(ids)))).all()
         for row in rows:
             row.state, row.active_run_id = "quarantined", None
         await session.commit()
@@ -106,6 +107,11 @@ async def binding(services, run, thread, bot=None, *, wait=True):
             async with protocol.run_lease(slot.socket_path, slot.uid, {
                     "id": new_id(), "run_id": run.id, "resource": box.resource,
                     "sandbox_id": box.id, "generation": box.generation}):
+                from openbot.sandboxes.credentials import material
+                async with services.session_factory() as session:
+                    credentials = await material(services, session, box.id)
+                if credentials["files"]:
+                    await execute(services, box.id, run.id, "provision", {}, None)
                 await execute(services, box.id, run.id, "probe", {}, thread.working_directory)
                 yield
         except (SandboxRejected, asyncio.CancelledError):
@@ -134,6 +140,10 @@ async def execute(services, sandbox_id, run_id, operation, args, directory, *, o
         slot = resource(services.settings, box.resource)
         if box.resource_spec != slot.model_dump():
             raise SandboxRejected("sandbox resource configuration changed")
+        from openbot.sandboxes.credentials import material
+        credentials = await material(services, session, box.id)
+        if operation != "provision":
+            credentials.pop("files")
         session.add(SandboxExecution(id=ident, sandbox_id=box.id, generation=box.generation,
                                     run_id=run_id, operation=operation))
         await session.commit()
@@ -142,6 +152,7 @@ async def execute(services, sandbox_id, run_id, operation, args, directory, *, o
         result = await protocol.request(slot.socket_path, slot.uid, {
             "id": ident, "run_id": run_id, "resource": box.resource, "sandbox_id": box.id,
             "generation": box.generation, "operation": operation, "args": args, "directory": directory,
+            "credentials": credentials,
             "tool_output_cap": services.settings.tool_output_cap,
             "shell_output_cap": services.settings.shell_output_cap, "skill_names": list(skill_names),
         }, on_event=on_event)
@@ -155,7 +166,7 @@ async def execute(services, sandbox_id, run_id, operation, args, directory, *, o
             item = await session.get(SandboxExecution, ident)
             item.state = outcome
             if outcome == "unknown":
-                await session.execute(update(Sandbox).where(Sandbox.id == sandbox_id).values(state="quarantined"))
+                await session.execute(update(Sandbox).where(Sandbox.id == sandbox_id, Sandbox.state != "clearing").values(state="quarantined"))
             await session.commit()
 
 

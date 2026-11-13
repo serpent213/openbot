@@ -131,6 +131,21 @@ class Sandbox(TimestampMixin, Base):
     active_run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
+class SandboxCredential(TimestampMixin, Base):
+    __tablename__ = "sandbox_credentials"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    target: Mapped[str] = mapped_column(String(1000), nullable=False)
+    encrypted_value: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class SandboxCredentialGrant(Base):
+    __tablename__ = "sandbox_credential_grants"
+    sandbox_id: Mapped[str] = mapped_column(ForeignKey("sandboxes.id"), primary_key=True)
+    credential_id: Mapped[str] = mapped_column(ForeignKey("sandbox_credentials.id"), primary_key=True)
+
+
 class SandboxExecution(TimestampMixin, Base):
     """Intent committed before dispatch. Unknown effects are never automatically repeated."""
     __tablename__ = "sandbox_executions"

@@ -1,5 +1,7 @@
 export type ActorKind = "bot" | "human" | "external" | "system";
-export interface Sandbox { id: string; name: string; resource: string; state: string; share_global_memory: boolean; }
+export interface Sandbox { id: string; name: string; resource: string; state: string; share_global_memory: boolean; configured?: boolean; active_run_id?: string | null; generation?: number; }
+export interface SandboxCredential { id: string; name: string; kind: "env" | "file"; target: string; is_set: boolean; sandbox_ids: string[]; }
+export interface CredentialInput { name: string; kind: "env" | "file"; target: string; value: string; }
 export interface SandboxInventory { enabled: boolean; sandboxes: Sandbox[]; default_sandbox_id?: string | null; host_execution_allowed?: boolean; }
 export interface ExecutionTarget { sandbox_id?: string; host_execution?: boolean; }
 export interface Actor { id: string; kind: ActorKind; handle: string; name: string; description: string; enabled: boolean; webhook_url: string | null; created_at: string; updated_at: string; }

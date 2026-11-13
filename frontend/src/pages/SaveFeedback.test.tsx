@@ -37,7 +37,7 @@ async function mount(path = "/settings") {
   await act(async () => root.render(
     <QueryClientProvider client={qc}><MemoryRouter initialEntries={[path]}>
       <SaveNotification /><Routes>
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/settings/*" element={<SettingsPage />} />
         <Route path="/edit/:id" element={<BotEditorPage />} />
         <Route path="/bots/new" element={<BotEditorPage />} />
         <Route path="/bots/:id" element={<p>Saved bot destination</p>} />
@@ -120,7 +120,7 @@ it.each([true, false])("bot edit reports persistence result across navigation (s
 it.each([true, false])("MCP add confirms only persistence, not connection (success=%s)", async (success) => {
   const pending = deferred<McpServer>();
   vi.spyOn(Api, "addMcpServer").mockReturnValue(pending.promise);
-  await mount(); await click(button("Add server"));
+  await mount("/settings/tools"); await click(button("Add server"));
   const dialog = el.querySelector('[role="dialog"]')!;
   await input(dialog.querySelector('input[placeholder="Name"]')!, "test");
   await input(dialog.querySelector('input[placeholder="MCP server URL"]')!, "https://example.com/mcp");
@@ -138,7 +138,7 @@ it.each([true, false])("MCP catalog Add submits and reports persistence failures
   }]);
   const pending = deferred<McpServer>();
   const install = vi.spyOn(Api, "installMcpCatalogEntry").mockReturnValue(pending.promise);
-  await mount();
+  await mount("/settings/tools");
   await until(() => !!button("Details"));
   await click(button("Details"));
   const dialog = el.querySelector('[role="dialog"]')!;
@@ -161,7 +161,7 @@ it.each(["deprecated", "unverified"] as const)("catalog %s entries show reasons 
     id: "blocked", name: "Blocked server", description: "Unavailable example", provider: "Example", source_url: "https://example.com", transport: "stdio", command: "", args: [], url: "", required_credentials: [], compatibility: [], status, status_reason: "Identity or support needs review",
   }]);
   const install = vi.spyOn(Api, "installMcpCatalogEntry");
-  await mount(); await until(() => !!button("Details")); await click(button("Details"));
+  await mount("/settings/tools"); await until(() => !!button("Details")); await click(button("Details"));
   const dialog = el.querySelector('[role="dialog"]')!;
   expect(dialog.textContent).toContain("Identity or support needs review");
   expect(dialog.textContent).toContain("No verified launch command");
@@ -174,7 +174,7 @@ it("catalog shows OAuth requirements and automatic connection warning", async ()
   vi.spyOn(Api, "listMcpCatalog").mockResolvedValue([{
     id: "linear", name: "Linear", description: "Issues", provider: "Linear", source_url: "https://linear.app/docs/mcp", transport: "http", command: "", args: [], url: "https://mcp.linear.app/mcp", required_credentials: ["Linear account authorization (OAuth or bearer token)"], compatibility: [], status: "template", status_reason: "Runtime not tested",
   }]);
-  await mount(); await until(() => !!button("Details")); await click(button("Details"));
+  await mount("/settings/tools"); await until(() => !!button("Details")); await click(button("Details"));
   const dialog = el.querySelector('[role="dialog"]')!;
   expect(dialog.textContent).toContain("OAuth or bearer token");
   expect(dialog.textContent).toContain("Enable starts a connection automatically");
@@ -183,7 +183,7 @@ it("catalog shows OAuth requirements and automatic connection warning", async ()
 
 it.each([true, false])("browser API key persistence reports storage failures (success=%s)", async (success) => {
   if (!success) vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Storage blocked"); });
-  await mount();
+  await mount("/settings/access");
   const key = el.querySelector<HTMLInputElement>('input[placeholder="X-API-Key"]')!;
   await input(key, " secret "); await click(button("Save", key.parentElement!));
   expect(notice()).toContain(success ? "API key saved in this browser" : "Could not save the API key");

@@ -5,7 +5,7 @@ export interface ScheduledMessage { id: string; thread_id: string; content: stri
 
 export interface AttachmentIn { url: string; name?: string; }
 import { ApiError, backendUnavailableEvent, isBackendUnavailable } from "./errors";
-import type { ExecutionTarget, Sandbox, SandboxInventory } from "./types";
+import type { CredentialInput, ExecutionTarget, Sandbox, SandboxCredential, SandboxInventory } from "./types";
 
 export { ApiError } from "./errors";
 
@@ -39,7 +39,13 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown;
 
 export const Api = {
   listSandboxes: () => api<SandboxInventory>("/sandboxes"),
-  updateSandbox: (id: string, body: { share_global_memory: boolean }) => api<Sandbox>(`/sandboxes/${encodeURIComponent(id)}`, { method: "PATCH", json: body }),
+  updateSandbox: (id: string, body: { name?: string; share_global_memory?: boolean }) => api<Sandbox>(`/sandboxes/${encodeURIComponent(id)}`, { method: "PATCH", json: body }),
+  clearSandboxHome: (id: string, body: { keep_dotfiles: boolean; confirmation: string; generation: number }) => api<{ kept: string[]; kept_count?: number }>(`/sandboxes/${encodeURIComponent(id)}/clear-home`, { method: "POST", json: body }),
+  listSandboxCredentials: () => api<SandboxCredential[]>("/sandbox-credentials"),
+  createSandboxCredential: (body: CredentialInput) => api<SandboxCredential>("/sandbox-credentials", { method: "POST", json: body }),
+  updateSandboxCredential: (id: string, body: { name?: string; value?: string }) => api<SandboxCredential>(`/sandbox-credentials/${encodeURIComponent(id)}`, { method: "PATCH", json: body }),
+  deleteSandboxCredential: (id: string) => api<void>(`/sandbox-credentials/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setSandboxCredentials: (id: string, credential_ids: string[]) => api<{ notice: string }>(`/sandboxes/${encodeURIComponent(id)}/credentials`, { method: "PUT", json: { credential_ids } }),
   listPlugins: () => api<{ id: string; version: string; settings_scopes: string[] }[]>("/plugins"),
   listBots: () => api<Bot[]>("/bots"),
   listBotCatalog: () => api<BotCatalogEntry[]>("/bots/catalog"),

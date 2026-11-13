@@ -24,10 +24,11 @@ def backend(request):
     return request.param
 
 
-def fake_cli(path, root, provider):
-    path.write_text(f"#!{sys.executable}\nROOT={str(root)!r}\nPROVIDER={provider!r}\nSESSION={SESSION!r}\n" + r'''
+def fake_cli(path, root, provider, expected_env=None):
+    path.write_text(f"#!{sys.executable}\nROOT={str(root)!r}\nPROVIDER={provider!r}\nSESSION={SESSION!r}\nEXPECTED_ENV={expected_env or {}!r}\n" + r'''
 import json, os, stat, sys, time
 from pathlib import Path
+assert all(os.environ.get(key) == value for key, value in EXPECTED_ENV.items()), "missing explicit app credential"
 args = sys.argv[1:]
 if "--version" in args:
     print("9.99.99")
@@ -110,6 +111,35 @@ async def queue(services, box, bot, thread, content):
 
 def calls(root):
     return [json.loads(line) for line in (root / "calls.jsonl").read_text().splitlines()]
+
+
+async def test_native_adapter_receives_explicit_environment_credential(settings, tmp_path, monkeypatch, backend):
+    from openbot.db.models import SandboxCredential, SandboxCredentialGrant
+    executable = tmp_path / "fake-cli"
+    fake_cli(executable, tmp_path / "home" / "workspace", backend, {"EXA_API_KEY": "fake-granted"})
+    plugin = "openbot_pi" if backend == "pi" else "openbot.builtin_plugins.claude"
+    async with worker_at(tmp_path, leased=False, plugins=[plugin], cli_paths={backend: str(executable)}) as (_, root, path):
+        services, box, bot, thread = await setup(settings, path, monkeypatch, backend)
+        async with services.session_factory() as session:
+            session.add(bot)
+            bot.bot.skill_names = []
+            credential = SandboxCredential(name="Exa", kind="env", target="EXA_API_KEY",
+                                           encrypted_value=services.secrets.encrypt("fake-granted"))
+            session.add(credential)
+            await session.flush()
+            session.add(SandboxCredentialGrant(sandbox_id=box.id, credential_id=credential.id))
+            await session.commit()
+        monkeypatch.setenv("EXA_API_KEY", "wrong-controller-value")
+        try:
+            run = await queue(services, box, bot, thread, "use app")
+            await services.runner.execute(run.id)
+            async with services.session_factory() as session:
+                completed = await session.get(Run, run.id)
+                assert completed.status == "completed", completed.error
+            assert "EXA_API_KEY" in calls(root)[0]["env_keys"]
+            assert "fake-granted" not in calls(root)[0]["system"]
+        finally:
+            await services.http_client.aclose()
 
 
 async def test_worker_cli_streams_resumes_reads_project_and_scopes_reflection(settings, tmp_path, monkeypatch, backend):

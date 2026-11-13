@@ -44,6 +44,11 @@ class FakeCgroups:
                     await self.kill(child)
         shutil.rmtree(path)
 
+    async def quiesce(self):
+        for path in self.root.iterdir():
+            if path.is_dir():
+                await self.kill(path)
+
     async def end(self, run_id):
         await self.kill(self.root / run_id)
 

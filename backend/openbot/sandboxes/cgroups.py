@@ -54,6 +54,18 @@ class Cgroups:
                 self._remove(child)
         path.rmdir()
 
+    async def quiesce(self):
+        """Prove no run descendants survive before destructive home maintenance."""
+        (self.runs / "cgroup.kill").write_text("1")
+        async with asyncio.timeout(10):
+            while "populated 1" in (self.runs / "cgroup.events").read_text():
+                await asyncio.sleep(0.02)
+        for child in self.runs.iterdir():
+            if child.is_dir():
+                self._remove(child)
+        if set((self.root / "cgroup.procs").read_text().split()) != {str(os.getpid())}:
+            raise SandboxError("unexpected service processes; home cleanup refused")
+
     async def end(self, run_id):
         # Agent processes have a kernel-locked read-only cgroup mount. Membership
         # cannot be changed by the operation, so this also reaches setsid/double-fork

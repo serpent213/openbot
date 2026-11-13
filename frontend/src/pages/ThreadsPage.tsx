@@ -23,7 +23,7 @@ export default function ThreadsPage() {
     ? { host_execution: true } : selected ? { sandbox_id: selected } : {};
   const targetValid = !!inventory.data && (!inventory.data.enabled || (selected === "host"
     ? inventory.data.host_execution_allowed === true
-    : inventory.data.sandboxes.some((box) => box.id === selected && box.state === "active")));
+    : inventory.data.sandboxes.some((box) => box.id === selected && box.state === "active" && box.configured !== false)));
   const [title, setTitle] = useState("");
   const [handles, setHandles] = useState<string[]>([]);
   const [defaultBot, setDefaultBot] = useState("chief_of_staff");
@@ -59,8 +59,8 @@ export default function ThreadsPage() {
         {inventory.data?.enabled && <Field label="Execution location" hint="Fixed for the life of this thread. Create a new thread to change it.">
           <Select aria-label="Execution location" value={selected} onChange={(event) => { setSelection(event.target.value); setWorkingDirectory(""); setPickerOpen(false); }}>
             <option value="" disabled>Select a sandbox</option>
-            {inventory.data.sandboxes.map((box) => <option key={box.id} value={box.id} disabled={box.state !== "active"}>
-              {box.name}{box.id === inventory.data?.default_sandbox_id ? " (default)" : ""}{box.state !== "active" ? ` — ${box.state}` : ""}
+            {inventory.data.sandboxes.map((box) => <option key={box.id} value={box.id} disabled={box.state !== "active" || box.configured === false}>
+              {box.name}{box.id === inventory.data?.default_sandbox_id ? " (default)" : ""}{box.configured === false ? " — unavailable" : box.state !== "active" ? ` — ${box.state}` : ""}
             </option>)}
             {inventory.data.host_execution_allowed && <option value="host">Host — unrestricted</option>}
           </Select>

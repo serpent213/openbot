@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Api, getApiKey, setApiKey } from "../api/client";
 import type { AppSetting, McpCatalogEntry, McpServer, McpServerInput } from "../api/types";
 import { Badge, Button, Card, Dialog, ErrorText, Field, Hint, Input, PageTitle, SectionTitle, Textarea } from "../components/ui";
@@ -11,15 +12,24 @@ import { ChevronDownIcon, ChevronRightIcon } from "../components/icons";
 import { groupState, groupTools, setGroup, toolLabel } from "../lib/toolGroups";
 
 import PluginSettings from "../components/PluginSettings";
+import SandboxSettings from "../components/SandboxSettings";
+import CredentialSettings from "../components/CredentialSettings";
+
+const SECTIONS = { general: "General", providers: "Providers & models", sandboxes: "Sandboxes", credentials: "Credentials", tools: "Tools & MCP", plugins: "Plugins", integrations: "Integrations", access: "Browser access" };
+const MODEL_GROUPS = ["Providers", "Embeddings", "Model routing"];
 
 const emptyExt = { handle: "", name: "", webhook_url: "", webhook_secret: "" };
 const Code = ({ children }: { children: React.ReactNode }) => <code className="rounded-ui border border-line bg-sunken px-1 text-[11px]">{children}</code>;
 
 export default function SettingsPage() {
   const qc = useQueryClient();
-  const providers = useQuery({ queryKey: ["providers"], queryFn: Api.getProviders });
-  const tools = useQuery({ queryKey: ["tools"], queryFn: Api.listTools });
-  const actors = useQuery({ queryKey: ["actors"], queryFn: Api.listActors });
+  const location = useLocation();
+  const navigate = useNavigate();
+  const requested = location.pathname.split("/")[2] || "general";
+  const section = requested in SECTIONS ? requested as keyof typeof SECTIONS : "general";
+  const providers = useQuery({ queryKey: ["providers"], queryFn: Api.getProviders, enabled: section === "providers" });
+  const tools = useQuery({ queryKey: ["tools"], queryFn: Api.listTools, enabled: section === "tools" });
+  const actors = useQuery({ queryKey: ["actors"], queryFn: Api.listActors, enabled: section === "integrations" });
   const [key, setKey] = useState(getApiKey());
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [keyError, setKeyError] = useState<Error | null>(null);
@@ -31,18 +41,24 @@ export default function SettingsPage() {
   const delExt = useSaveMutation({ mutationFn: (id: string) => Api.deleteActor(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["actors"] }) }, "External actor removed");
   const externals = actors.data?.filter((a) => a.kind === "external") ?? [];
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    <div className="mx-auto max-w-5xl space-y-5">
       <PageTitle>Settings</PageTitle>
+      <div className="grid gap-5 md:grid-cols-[11rem_minmax(0,1fr)]">
+        <nav aria-label="Settings sections" className="hidden space-y-1 md:block">
+          {Object.entries(SECTIONS).map(([id, label]) => <Link key={id} to={`/settings/${id}`} aria-current={section === id ? "page" : undefined}
+            className={`block rounded-ui px-3 py-2 text-sm ${section === id ? "bg-sunken font-medium text-fg" : "text-muted hover:text-fg"}`}>{label}</Link>)}
+        </nav>
+        <select aria-label="Settings section" className="rounded-ui border border-line bg-surface p-2 md:hidden" value={section} onChange={(e) => navigate(`/settings/${e.target.value}`)}>
+          {Object.entries(SECTIONS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </select>
+        <div key={section} className="min-w-0 space-y-5">
+      {section === "general" && <><RuntimeSettings section="general" /><DatabaseLocationCard /></>}
+      {section === "sandboxes" && <SandboxSettings />}
+      {section === "credentials" && <CredentialSettings />}
+      {section === "plugins" && <PluginSettings />}
+      {section === "tools" && <McpServersCard />}
 
-      <RuntimeSettings />
-      <SandboxSettings />
-      <PluginSettings />
-
-      <DatabaseLocationCard />
-
-      <McpServersCard />
-
-      <Card className="space-y-3">
+      {section === "providers" && <><RuntimeSettings section="providers" /><Card className="space-y-3">
         <SectionTitle>Providers</SectionTitle>
         <ErrorText error={providers.error} />
         <div className="flex flex-wrap gap-1.5">
@@ -50,9 +66,9 @@ export default function SettingsPage() {
         </div>
         <Hint>Embeddings: <span className="font-mono text-xs">{providers.data?.embedding_model}</span>, {providers.data?.embeddings_configured ? "configured." : "not configured, so memory search is by recency only."}</Hint>
         <Hint className="text-xs">Keys set in the server environment (.env) are the defaults; values saved above override them. Restart the server after changing environment keys.</Hint>
-      </Card>
+      </Card></>}
 
-      <Card className="space-y-3">
+      {section === "integrations" && <><RuntimeSettings section="integrations" /><Card className="space-y-3">
         <SectionTitle>External actors</SectionTitle>
         <Hint>External systems post as themselves via the API and receive their inbox by signed webhook.</Hint>
         <ul className="divide-y divide-line text-[13px]">
@@ -74,11 +90,11 @@ export default function SettingsPage() {
           <Field label="Webhook secret (optional)"><Input value={ext.webhook_secret} onChange={(e) => setExt({ ...ext, webhook_secret: e.target.value })} /></Field>
           <div className="space-y-2 sm:col-span-2"><ErrorText error={createExt.error} /><Button type="submit" variant="secondary" disabled={createExt.isPending}>Add external actor</Button></div>
         </form>
-      </Card>
+      </Card></>}
 
-      <ToolsCard tools={tools} openGroups={openGroups} setOpenGroups={setOpenGroups} />
+      {section === "tools" && <ToolsCard tools={tools} openGroups={openGroups} setOpenGroups={setOpenGroups} />}
 
-      <Card className="space-y-3">
+      {section === "access" && <Card className="space-y-3">
         <SectionTitle>API key</SectionTitle>
         <Hint>Only needed when the server sets OPENBOT_API_KEY. Stored in this browser.</Hint>
         <div className="flex gap-2">
@@ -95,43 +111,13 @@ export default function SettingsPage() {
           }}>Save</Button>
         </div>
         <ErrorText error={keyError} />
-      </Card>
+      </Card>}
+        </div>
+      </div>
     </div>
   );
 }
 
-
-function SandboxSettings() {
-  const qc = useQueryClient();
-  const boxes = useQuery({ queryKey: ["sandboxes"], queryFn: Api.listSandboxes });
-  const save = useSaveMutation({
-    mutationFn: ({ id, share }: { id: string; share: boolean }) => Api.updateSandbox(id, { share_global_memory: share }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sandboxes"] }),
-  }, "Memory sharing saved");
-  if (!boxes.error && !boxes.data?.enabled) return null;
-  return (
-    <Card className="space-y-3">
-      <SectionTitle>Sandbox memory</SectionTitle>
-      <Hint>Off keeps each bot’s long-term memory within this sandbox. On lets bots use their bot-global memories across sandboxes that opt in. This does not change each bot’s memory setting.</Hint>
-      <Hint>Changes apply to new runs. Existing conversations retain their history, and scratchpads stay separate.</Hint>
-      <ErrorText error={boxes.error ?? save.error} />
-      <ul className="divide-y divide-line text-[13px]">
-        {boxes.data?.sandboxes.map((box) => (
-          <li key={box.id} className="space-y-2 py-2">
-            <div className="flex items-center gap-2"><span>{box.name}</span><Badge>{box.state}</Badge></div>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" className="accent-accent" aria-label={`Share bot-global memory for ${box.name}`}
-                checked={box.share_global_memory} disabled={save.isPending}
-                onChange={(event) => save.mutate({ id: box.id, share: event.target.checked })} />
-              Share bot-global memory
-            </label>
-          </li>
-        ))}
-      </ul>
-      {boxes.data?.sandboxes.length === 0 && <Hint>No sandboxes allocated yet.</Hint>}
-    </Card>
-  );
-}
 
 function ToolsCard({ tools, openGroups, setOpenGroups }: { tools: ReturnType<typeof useQuery<{ tools: import("../api/types").ToolInfo[]; errors: { file: string; error: string }[] }>>; openGroups: Record<string, boolean>; setOpenGroups: React.Dispatch<React.SetStateAction<Record<string, boolean>>> }) {
   const grouped = groupTools(tools.data?.tools ?? []);
@@ -187,13 +173,15 @@ function ToolsCard({ tools, openGroups, setOpenGroups }: { tools: ReturnType<typ
   );
 }
 
-function RuntimeSettings() {
+function RuntimeSettings({ section }: { section: "general" | "providers" | "integrations" }) {
   const settings = useQuery({ queryKey: ["settings"], queryFn: Api.getSettings });
   if (settings.isLoading) return null;
   if (!settings.data) return <ErrorText error={settings.error} />;
   return (
     <>
-      {groupSettings(settings.data).map((g) => <SettingsGroupCard key={g.name} group={g} />)}
+      {groupSettings(settings.data).filter((g) => section === "providers" ? MODEL_GROUPS.includes(g.name)
+        : section === "integrations" ? g.name === "Telegram" : !MODEL_GROUPS.includes(g.name) && g.name !== "Telegram")
+        .map((g) => <SettingsGroupCard key={g.name} group={g} />)}
     </>
   );
 }

@@ -5,7 +5,7 @@ export default function ThreadExecutionBadge({ thread, inventory }: { thread: Th
   if (thread.sandbox_id) {
     const box = inventory?.sandboxes.find((item) => item.id === thread.sandbox_id);
     return <span className="text-muted" title={`Fixed sandbox: ${thread.sandbox_id}. Create a new thread to change it.`}>
-      Sandbox: {box?.name ?? thread.sandbox_id}{box && box.state !== "active" ? ` (${box.state})` : ""}
+      Sandbox: {box?.name ?? thread.sandbox_id}{box?.configured === false ? " (unavailable)" : box && box.state !== "active" ? ` (${box.state})` : ""}
     </span>;
   }
   if (thread.host_execution || inventory?.enabled === false) {

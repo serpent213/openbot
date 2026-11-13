@@ -42,8 +42,11 @@ async def perform(root: Path, payload: dict, env: dict, emit):
     import httpx
     from pydantic import ValidationError
 
-    cwd = cwd_for(root, payload)
     name, args = payload["operation"], payload.get("args", {})
+    if name == "provision":
+        from openbot.sandboxes.home import provision
+        return provision(Path.home(), payload.get("credentials", {}).get("files", {}))
+    cwd = cwd_for(root, payload)
     config = payload.get("worker_config", {})
     context = RunContext("", "", "", "", payload["run_id"], cwd, None,
                          tool_output_cap=payload.get("tool_output_cap", 8000),

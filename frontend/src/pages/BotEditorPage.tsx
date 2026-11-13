@@ -254,7 +254,7 @@ export default function BotEditorPage() {
           <Card className="space-y-3">
             <SectionTitle>Tools</SectionTitle>
             <Hint className="text-xs">Core tools (ask_human, list_bots, memory, history recall) are always available.</Hint>
-            <p className="rounded-ui border border-warn/40 border-l-2 border-l-warn bg-warn/[0.06] px-3 py-2 font-sans text-xs leading-relaxed text-fg"><span className="font-mono text-warn">run_shell</span> is not sandboxed. It runs any command as the server user, with access to the whole filesystem and the server environment, including your provider API keys. Only the file tools are confined to the workspace.</p>
+            <p className="rounded-ui border border-warn/40 border-l-2 border-l-warn bg-warn/[0.06] px-3 py-2 font-sans text-xs leading-relaxed text-fg"><span className="font-mono text-warn">run_shell</span> can run arbitrary commands with the execution account's permissions. Bound threads use their sandbox worker; Host threads use the controller account and can access its credentials. A bot with shell access is not read-only merely because file-write tools are unselected. Unadapted server/plugin tools remain unavailable in sandboxes.</p>
             {tools.data?.errors.map((e) => <p key={e.file} className="text-xs text-danger">{e.file}: {e.error}</p>)}
             <div className="divide-y divide-line">
               {grouped.flat.map((t) => <ToolRow key={t.name} name={t.name} label={t.name} description={t.description} on={form.tool_names.includes(t.name)} approval={form.approval_tools.includes(t.name)} onToggle={() => toggleTool(t.name)} onToggleApproval={() => toggleApproval(t.name)} />)}

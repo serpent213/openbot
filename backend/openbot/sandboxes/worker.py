@@ -21,7 +21,7 @@ from openbot.sandboxes.protocol import (
 )
 
 ENV_NAMES = ("PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "NIX_SSL_CERT_FILE")
-OPERATIONS = {"probe", "prepare", "browse", "skills", "cli_probe", "cli_turn"}
+OPERATIONS = {"probe", "prepare", "browse", "skills", "cli_probe", "cli_turn", "provision"}
 
 
 def environment(home: str) -> dict[str, str]:
@@ -41,6 +41,7 @@ class Worker:
                        "isolate": not _test_without_namespaces}
         self.active_run = None
         self.closing_run = False
+        self.maintenance = False
         self.operations = {}  # operation ID -> task; no global operation semaphore
         self.cleaning = set()
         self.seen = set()
@@ -50,8 +51,8 @@ class Worker:
 
     async def _run(self, payload, reader, writer):
         run_id = payload.get("run_id")
-        if self.active_run is not None:
-            raise SandboxRejected("worker already has an active run")
+        if self.active_run is not None or self.maintenance:
+            raise SandboxRejected("worker already has an active run or maintenance operation")
         self.groups.begin(run_id)
         self.active_run = run_id
         self.closing_run = False
@@ -169,6 +170,20 @@ class Worker:
             self.cleaning.discard(ident)
         await self._reply(writer, ident, result.pop("type"), **result)
 
+    async def _clear_home(self, payload, writer):
+        if self.active_run is not None or self.maintenance:
+            raise SandboxRejected("home clearing requires an idle worker")
+        if not isinstance(payload.get("keep_dotfiles"), bool):
+            raise SandboxRejected("keep_dotfiles must be explicitly selected")
+        self.maintenance = True
+        # Stay fenced on any unknown/partial cleanup outcome. Restart/reconciliation
+        # is an operator action, never a retry of destructive work.
+        await self.groups.quiesce()
+        from openbot.sandboxes.home import clear
+        result = clear(self.home, self.root, payload["keep_dotfiles"])
+        self.maintenance = False
+        await self._reply(writer, payload["id"], "result", result=result)
+
     async def handle(self, reader, writer):
         ident = None
         try:
@@ -182,6 +197,8 @@ class Worker:
                 raise SandboxRejected("invalid request/version/resource")
             if payload.get("operation") == "run":
                 await self._run(payload, reader, writer)
+            elif payload.get("operation") == "clear_home":
+                await self._clear_home(payload, writer)
             else:
                 await self._operation(payload, reader, writer)
         except SandboxRejected as exc:
@@ -245,6 +262,12 @@ async def execute_child(root, payload):
 
     try:
         try:
+            # This child has already joined and locked its operation namespace.
+            # Credentials must never affect supervisor/bootstrap interpreter startup.
+            from openbot.sandboxes.credentials import validate_target
+            for key, value in payload.get("credentials", {}).get("env", {}).items():
+                validate_target("env", key)
+                os.environ[key] = value
             result = await perform(root, payload, dict(os.environ), emit)
             packet = {"type": "result", "result": result}
         except SandboxRejected as exc:

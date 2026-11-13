@@ -21,7 +21,8 @@ class SandboxCreate(BaseModel):
 
 class SandboxUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    share_global_memory: bool
+    share_global_memory: bool | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 def output(box):
@@ -33,6 +34,7 @@ def output(box):
 async def listing(session=Depends(get_session), services=Depends(get_services)):
     rows = (await session.scalars(select(Sandbox).order_by(Sandbox.name))).all()
     allocated = {row.resource for row in rows}
+    from openbot.sandboxes.inventory import configured
     return {"enabled": services.settings.sandboxes_enabled,
             "default_sandbox_id": services.settings.sandbox_default_id,
             "host_execution_allowed": services.settings.sandbox_allow_host_execution,
@@ -41,7 +43,7 @@ async def listing(session=Depends(get_session), services=Depends(get_services)):
             "create_resources": False, "recycle": False,
             "resources": [{"id": name, "allocated": name in allocated, "externally_managed": True}
                           for name in services.settings.sandbox_resources],
-            "sandboxes": [output(row) for row in rows]}
+            "sandboxes": [{**output(row), "configured": configured(services.settings, row)} for row in rows]}
 
 
 @router.post("", status_code=201)
@@ -66,8 +68,15 @@ async def configure(sandbox_id: str, body: SandboxUpdate, session=Depends(get_se
     box = await session.get(Sandbox, sandbox_id)
     if box is None:
         raise HTTPException(404, "sandbox not found")
-    box.share_global_memory = body.share_global_memory
-    await session.commit()
+    for key, value in body.model_dump(exclude_unset=True).items():
+        if value is None or (key == "name" and not value.strip()):
+            raise HTTPException(422, "name and memory sharing cannot be empty")
+        setattr(box, key, value.strip() if key == "name" else value)
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(409, "sandbox name already exists") from exc
     return {**output(box), "notice": "memory policy applies to newly created runs; existing run snapshots are unchanged"}
 
 
@@ -79,6 +88,25 @@ def validate_inspection_target(settings, sandbox_id, host_execution):
         raise HTTPException(403, "host execution is disabled by the operator")
     if settings.sandboxes_enabled and not sandbox_id and not host_execution:
         raise HTTPException(409, "select sandbox_id or explicitly request allowed host_execution")
+
+
+class HomeClear(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    keep_dotfiles: bool
+    confirmation: str
+    generation: int = Field(ge=1)
+
+
+@router.post("/{sandbox_id}/clear-home")
+async def clear_home(sandbox_id: str, body: HomeClear, services=Depends(get_services)):
+    from openbot.sandboxes.maintenance import clear_home as clear
+    try:
+        return await clear(services, sandbox_id, keep_dotfiles=body.keep_dotfiles,
+                           confirmation=body.confirmation, generation=body.generation)
+    except SandboxError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except (OSError, TimeoutError) as exc:
+        raise HTTPException(409, "home cleanup unconfirmed; sandbox quarantined, inspect before retrying") from exc
 
 
 async def worker_inspect(services, sandbox_id, operation, args, directory=None):

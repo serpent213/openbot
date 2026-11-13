@@ -31,6 +31,7 @@ function saveButtonFor(node: Element): HTMLButtonElement {
 
 beforeEach(() => {
   vi.spyOn(Api, "listSandboxes").mockResolvedValue({ enabled: false, sandboxes: [] });
+  vi.spyOn(Api, "listSandboxCredentials").mockResolvedValue([]);
   vi.spyOn(Api, "listPlugins").mockResolvedValue([]);
   qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   vi.spyOn(Api, "getSettings").mockResolvedValue(settings);
@@ -52,7 +53,7 @@ it("only changes sandbox memory sharing after the server saves it", async () => 
   vi.mocked(Api.listSandboxes).mockImplementation(async () => ({ enabled: true, sandboxes: [box] }));
   const update = vi.spyOn(Api, "updateSandbox").mockRejectedValueOnce(new Error("Save refused"))
     .mockImplementation(async (_id, values) => (box = { ...box, ...values }));
-  await act(async () => root.render(<QueryClientProvider client={qc}><MemoryRouter><SettingsPage /></MemoryRouter></QueryClientProvider>));
+  await act(async () => root.render(<QueryClientProvider client={qc}><MemoryRouter initialEntries={["/settings/sandboxes"]}><SettingsPage /></MemoryRouter></QueryClientProvider>));
   const toggle = () => el.querySelector<HTMLInputElement>('input[aria-label="Share bot-global memory for Development"]')!;
   await until(() => !!toggle());
   expect(toggle().checked).toBe(false);
@@ -69,7 +70,7 @@ it("only changes sandbox memory sharing after the server saves it", async () => 
 
 it("renders the default bot model as an OpenRouter catalog picker and saves the picked value", async () => {
   const patch = vi.spyOn(Api, "patchSettings").mockImplementation(async (updates) => settings.map((s) => (s.key in updates ? { ...s, value: updates[s.key], overridden: true } : s)));
-  await act(async () => root.render(<QueryClientProvider client={qc}><MemoryRouter><SettingsPage /></MemoryRouter></QueryClientProvider>));
+  await act(async () => root.render(<QueryClientProvider client={qc}><MemoryRouter initialEntries={["/settings/providers"]}><SettingsPage /></MemoryRouter></QueryClientProvider>));
   await until(() => combobox() !== null);
   expect(combobox()!.value).toBe("openai/gpt-4o-mini");
   expect(Api.getModels).toHaveBeenCalledWith("openrouter");
@@ -94,7 +95,7 @@ const bot = (id: string, tool_names: string[], approval_tools: string[] = []): B
 const grantBox = (handle: string) => document.body.querySelector<HTMLInputElement>(`input[aria-label="Grant lin to @${handle}"]`);
 const dialogButton = (label: string) => [...document.getElementById("mcp-dialog-title")!.closest("form")!.querySelectorAll("button")].find((b) => b.textContent === label)!;
 async function editServer() {
-  await act(async () => root.render(<QueryClientProvider client={qc}><MemoryRouter><SettingsPage /></MemoryRouter></QueryClientProvider>));
+  await act(async () => root.render(<QueryClientProvider client={qc}><MemoryRouter initialEntries={["/settings/tools"]}><SettingsPage /></MemoryRouter></QueryClientProvider>));
   await until(() => [...el.querySelectorAll("button")].some((b) => b.textContent === "Edit"));
   await act(async () => { [...el.querySelectorAll("button")].find((b) => b.textContent === "Edit")!.click(); });
 }

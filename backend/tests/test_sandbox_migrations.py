@@ -29,6 +29,8 @@ async def test_existing_sqlite_allocation_defaults_to_private_memory(tmp_path):
             columns = (await connection.execute(text("PRAGMA table_info(runs)"))).all()
             assert "memory_namespace" in {column.name for column in columns}
             assert (await connection.execute(text("SELECT count(*) FROM sandbox_scratchpads"))).scalar() == 0
+            assert (await connection.execute(text("SELECT count(*) FROM sandbox_credentials"))).scalar() == 0
+            assert (await connection.execute(text("SELECT count(*) FROM sandbox_credential_grants"))).scalar() == 0
     finally:
         await engine.dispose()
 
@@ -46,3 +48,19 @@ def test_sandbox_memory_migration_compiles_for_postgresql_without_sqlite_specifi
     assert "CREATE TABLE sandbox_scratchpads" in sql
     assert "DROP TABLE sandbox_scratchpads" in sql
     assert "PRAGMA" not in sql and "sqlite" not in sql.lower()
+
+
+def test_sandbox_credentials_migration_postgresql_ddl():
+    output = io.StringIO()
+    context = MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True, "output_buffer": output})
+    migration = importlib.import_module("openbot.db.migrations.versions.0028_sandbox_credentials")
+    with Operations.context(context):
+        migration.upgrade()
+        migration.downgrade()
+    sql = output.getvalue()
+    assert "CREATE TABLE sandbox_credentials" in sql
+    assert "CREATE TABLE sandbox_credential_grants" in sql
+    assert "encrypted_value TEXT NOT NULL" in sql
+    assert "REFERENCES sandboxes" in sql and "REFERENCES sandbox_credentials" in sql
+    assert "DROP TABLE sandbox_credentials" in sql
+    assert "PRAGMA" not in sql

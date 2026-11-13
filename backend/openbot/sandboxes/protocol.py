@@ -12,7 +12,7 @@ import struct
 from contextlib import asynccontextmanager, suppress
 
 MAX_FRAME = 32 * 1024 * 1024  # matches the existing coding-CLI event limit
-VERSION = 2
+VERSION = 3
 
 
 class SandboxError(RuntimeError):

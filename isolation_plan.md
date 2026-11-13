@@ -6,7 +6,7 @@ Status: implementation authorized; trusted-server/worker split confirmed. The
 opt-in execution prototype is implemented on `feat/sandboxes`. Infrastructure's
 `nix/machines/bucket/openbot/README.md` records operator deployment and a two-UID/Pi
 continuation pilot at core `d9a8937`; this coding session has not deployed or modified
-live accounts/services/firewalls. The mixed-host/thread UI follow-up is not activated.
+live accounts/services/firewalls. The sandbox management follow-up is not activated by this coding session.
 This is not completed isolation. See
 [the prototype capability matrix and pilot checklist](docs/sandboxes.md).
 
@@ -17,7 +17,10 @@ coding adapters (including installed Pi). Memory retrieval/tools/reflection and
 scratchpads are scoped; operator-controlled global memory sharing defaults false.
 Worker CLI probes and directory/skill browsing have API support. Unadapted server
 plugin/MCP tools remain refused. Settings provides a global-memory sharing switch;
-allocation/recycling management GUI and site network policy remain separate work.
+site network policy remains separate work. The management follow-up adds URL-backed
+Settings sections, automatic registration from configured resources, immutable-ID
+rename/status controls, named sandbox-only env/file credentials, and generic home
+clearing. Per-bot tool selection/approvals and plugin credential settings are unchanged.
 Thread creation now selects an active sandbox, or explicitly enabled **Host —
 unrestricted** execution. Host selection is immutable, snapshotted per run and disabled
 by default (`SANDBOX_ALLOW_HOST_EXECUTION`). Old unbound threads remain blocked in
@@ -270,8 +273,11 @@ be preceded by draining affected slots and a pre-removal check; deleting an acco
 does not stop its processes or remove files. The module/activation design must
 address this before offering safe pool shrink, including rollback behaviour.
 
-For the prototype, preprovision worker services and fixed policy bindings. GUI
-allocation can then occur without root account management. If dynamic policy
+For the prototype, preprovision worker services and fixed policy bindings. The Nix
+module exposes `resourceInventory` derived from its prefix/count/UID configuration;
+core registers missing sandbox rows with resource-name defaults at startup. Existing
+names/IDs and quarantined bindings are preserved; missing/changed resources are
+unavailable, not rebound. Name/UID conflicts require reconciliation, not silent reuse. If dynamic policy
 changes or account creation are added later, use a separate narrow broker limited
 to approved resources and policy names. Do not expose unrestricted systemd D-Bus,
 sudo, firewall command strings or application-generated NixOS activation.
@@ -296,6 +302,30 @@ sudo, firewall command strings or application-generated NixOS activation.
   assumption that it contains no confidential data. Read-only does not mean secret.
 - Keep Openbot's local administrative API authenticated. Sandbox tools must not
   acquire its operator credential or approve their own access changes.
+
+## Named credentials and home lifecycle
+
+Keep existing bot tools/approvals and plugin/API credential configuration intact.
+Named sandbox credentials are for worker processes (shell/native agent apps): delivery
+is either an environment variable or a home-relative file, with sandbox-only grants.
+There are no bot/thread grant matrices. Values use the existing server encryption;
+responses, prompts and intents never include them. Environment injection happens
+only after child isolation, never in supervisor startup. Static file provisioning
+rejects links/mounts and writes mode 0600; mutable OAuth state is not imported.
+
+Two explicit home actions: **Clear home, keep dotfiles**, and **Clear home, including
+dotfiles**. The former retains all top-level hidden entries, not just login state;
+the latter removes native logins stored at home. Both exclude mounts, preserve DB
+history/memory and named central credentials, and recreate the workspace. Attached
+static files will be provisioned again later. Confirmation includes current name and
+generation; no controller-home action or automatic destructive retry exists. This
+is maintenance within one identity, not cross-identity account recycling. Future
+scheduled messages and copied/exfiltrated credentials are not revoked by clearing.
+
+The transport is RPC v3; upgrade controller and workers together. Tests use disposable
+homes, fake credentials and same-UID/fake-cgroup workers. They do not replace a real
+separate-UID/systemd home-maintenance pilot. See `docs/sandboxes.md` for API details,
+remaining reconciliation limitations and the Pi wrapper migration requirement.
 
 ## Memory, plugins and delegation
 
@@ -346,10 +376,13 @@ global sharing is an intentional exception that should be visible in configurati
 4. Run the real separate-UID and native Pi continuation/login pilot after prerequisite
    agreement. Automated fake-CLI adapter tests are not that pilot. Adapt additional
    server plugins only as separately reviewed execution/scoping work.
-5. Thread selection/labels, target-aware directory browsing and memory settings are
-   available in the GUI. Allocation GUI and safe cleanup/reconciliation remain work. Retirement now
-   quarantines without reuse; safe pool shrink, automatic deletion and recycling are
-   unavailable. No Podman or backend-created accounts are implemented.
+5. Management follow-up: sectioned Settings, automatic inventory registration and
+   rename/status, named encrypted credentials with sandbox-only grants, and generic
+   home clearing are implemented on `feat/sandbox-management`. Home clearing cancels
+   existing work, fences generations, verifies cgroup quiescence and preserves mounts;
+   uncertainty quarantines without replay. Login paths are not hardcoded. Safe pool
+   shrink, account recycling/reactivation, Podman and backend-created accounts remain
+   unavailable. Validate destructive operations on disposable identities before use.
 6. Later validate a minimal Podman backend before freezing a public backend plugin
    interface. Do not add a message broker as a prerequisite.
 

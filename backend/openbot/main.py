@@ -34,6 +34,7 @@ from openbot.api import commands as commands_api
 from openbot.api import mcp as mcp_api
 from openbot.api import models as models_api
 from openbot.api import plugin_settings as plugin_settings_api
+from openbot.api import sandbox_credentials as sandbox_credentials_api
 from openbot.api import sandboxes as sandboxes_api
 from openbot.api import settings as settings_api
 from openbot.api import setup as setup_api
@@ -131,6 +132,8 @@ async def close_services(services: Services) -> None:
 
 
 async def start_background(services: Services) -> None:
+    from openbot.sandboxes.inventory import register
+    await register(services)
     await start_plugins(services)
     if not services.env_defaults:                      # services built by hand (tests) skip build_services
         await app_settings.apply_stored_overrides(services)
@@ -309,7 +312,7 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     core_routers = (actors.router, bots.router, threads.router, messages.router, inbox.router, runs.router, tools.router,
               providers.router, models_api.router, events.router, settings_api.router, mcp_api.router, setup_api.router,
               workspace_api.router, activity_api.router, scheduled.router, plugin_settings_api.router, commands_api.router,
-              sandboxes_api.router)
+              sandboxes_api.router, sandbox_credentials_api.router)
     for r in core_routers:
         api.include_router(r)
     reserved = {r.prefix.split("/")[1] for r in core_routers if r.prefix} | {"plugins", "health", "channels"}

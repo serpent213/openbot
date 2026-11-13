@@ -21,7 +21,7 @@ No additional Python dependencies, broker, root helper or automatic deployment.
 | Bot roster / instructions / installed server plugins / operator UI | Trusted shared configuration, not a multi-tenant UI authorization boundary |
 | Worker CLI user extensions/MCP | Governed by the selected CLI adapter/permission mode; execute inside its worker operation, not as server plugins |
 | Unadapted server plugin/MCP tools, bot creation/profile mutation, hosted web tools | Explicitly refused; never silently executed on the server |
-| Operator GUI | Thread creation selects a sandbox or explicitly enabled Host execution; immutable binding labels and target-aware directory browsing; Settings exposes memory sharing. Allocation/lifecycle management still use the operator API |
+| Operator GUI | URL-backed Settings sections; inventory/name/status, memory sharing, sandbox-only named credential attachments, and confirmed generic home clearing; thread selection/browsing retains immutable bindings |
 | Public sandbox backend registration / Podman / recycling | Deferred |
 
 Coding adapters must be installed/enabled in **both** controller and worker. The
@@ -41,7 +41,7 @@ This remains a **single-controller** prototype.
 ## Outcomes, cancellation and cleanup
 
 Each operation has a durable intent committed before dispatch. Stored intent fields
-are identity, scope, operation and state, **not arguments/output**. RPC v2 uses one
+are identity, scope, operation and state, **not arguments/output or credential values**. RPC v3 uses one
 operation per authenticated Unix connection and streams CLI events before its
 terminal response. Frames are bounded at 32 MiB, matching the existing CLI event
 limit; normal tool output uses the existing tool caps and worker-side spill files.
@@ -116,16 +116,24 @@ environments or prompts. API inventory cannot create accounts or change host pol
 Authenticated endpoints:
 
 - `GET /api/v1/sandboxes`: inventory/capabilities, not a live isolation certificate.
-- `POST /api/v1/sandboxes`: `{"name":"research","resource":"openbot-sbx1"}`.
-  IDs, resource specs/generation and thread bindings remain immutable. Allocated or
-  retired UIDs/resources cannot be allocated again.
+- On startup, configured resources without an existing resource/UID binding are
+  registered with their resource name (for example `openbot-sbx4`). Existing names,
+  IDs and assignments are preserved, including quarantined rows. Removed or changed
+  inventory is shown unavailable, never deleted or automatically rebound. Name/UID
+  conflicts are logged and require operator reconciliation; restart after resolving.
+- `POST /api/v1/sandboxes` remains for explicit/custom inventories. IDs, resource
+  assignments and thread bindings remain immutable. Allocated or retired UIDs/resources
+  cannot be allocated again. Generation fences execution/session state and advances
+  when credentials or home contents are deliberately changed.
 - `POST /api/v1/threads`: select `sandbox_id`, optionally a **relative**
   `working_directory`. Only the worker checks existence. Fixing a nonexistent
   directory does not require allocating another sandbox. Alternatively, the operator
   may explicitly send `host_execution:true` when boot policy allows it. Both fields
   together are rejected. Omitted/null sandbox IDs still use the configured sandbox
   default, never Host. Selection is immutable and snapshotted onto each run.
-- `PATCH /api/v1/sandboxes/{id}`: `{"share_global_memory":true}` explicitly selects
+- `PATCH /api/v1/sandboxes/{id}` also accepts a unique display `name`; renaming does
+  not change the account, home or any thread binding.
+  `{"share_global_memory":true}` explicitly selects
   the existing bot-global memory namespace for **newly created runs**, for both
   reads and writes/reflection. Default is false. Each run snapshots the policy;
   paused/queued existing runs retain theirs. Changing it never copies/deletes data
@@ -154,7 +162,7 @@ when explicitly shared, the unchanged `("bots", bot_id, "memories")`. Reflection
 batches include their namespace, including fallback-model reflection. CLI reflection
 still requires a configured server-side chat provider, as in legacy mode. Scratchpads
 have a separate `(sandbox_id, actor_id)` table and are **never** switched to the
-legacy global scratchpad by the memory flag. Settings → Sandbox memory exposes
+legacy global scratchpad by the memory flag. Settings → Sandboxes exposes
 the per-sandbox sharing switch; it does not change each bot's memory setting.
 Existing global memory/scratchpad UI
 views remain global; scoped management UI is deferred.
@@ -169,11 +177,13 @@ other, regardless of logical session/memory keys.
 
 Migrations `0025` and `0026` add bindings/intents, the memory opt-in/run snapshot and
 scoped scratchpads. Migration `0027` adds explicit host selection to threads/runs,
-with false defaults: no existing unbound row is implicitly authorized. Legacy rows/data stay in their original namespace; old bound
+with false defaults: no existing unbound row is implicitly authorized. Migration
+`0028` adds encrypted named credentials and sandbox grants, initially empty. Legacy rows/data stay in their original namespace; old bound
 runs without a memory snapshot default to sandbox scope. Back up the DB and homes
 consistently; restoring one without reconciling the other is unsafe. Disabling the
 feature never converts an already-bound thread into a local run. Stop workloads and
-upgrade controller and workers together: RPC v1 and v2 are deliberately not mixed.
+upgrade controller and workers together: RPC v3 is deliberately incompatible with
+v1/v2 (old workers must not silently ignore credential or maintenance requests).
 
 ## Thread UI and intentional host execution
 
@@ -197,6 +207,86 @@ agent can access whatever the controller can, potentially including application
 state/keys and worker control sockets. This is trusted maintenance access and can
 compromise the whole installation; red labels are warnings, not an OS boundary.
 It grants no sudo/root rights and cannot by itself deploy a NixOS configuration.
+
+## Settings, credentials and home clearing
+
+Settings now has linkable sections at `/settings/{general,providers,sandboxes,
+credentials,tools,plugins,integrations,access}`. `/settings` still opens General.
+Navigation is a secondary menu, with a select control on narrow screens. Existing
+per-bot tool selection, approvals, plugin credentials and legacy Host behavior are
+unchanged. Sandbox compatibility checks still refuse unadapted plugin/MCP tools;
+native CLI tools are separate. No new bot/thread secret permission matrix is added.
+
+### Named sandbox credentials
+
+- `GET/POST /api/v1/sandbox-credentials`: list metadata or create `{name, kind, target,
+  value}`. `kind` is `env` or `file`; `target` is an environment variable such as
+  `EXA_API_KEY`, or a normalized home-relative path such as `.ssh/project_key`.
+- `PATCH /api/v1/sandbox-credentials/{id}` changes name/value; target and kind are
+  immutable. Values are encrypted using the existing server SecretBox and are never
+  returned by the API, included in prompts, or stored in execution intents. These
+  guarantees do not redact secrets deliberately printed by an agent's command.
+- `PUT /api/v1/sandboxes/{id}/credentials` replaces the explicit list of
+  `credential_ids`. Saving or rotating attached values requires active, idle
+  sandboxes; conflicts fail rather than combining privileges. Generation changes
+  invalidate old queued runs/resumes and CLI continuation. Renaming alone does not.
+- `DELETE /api/v1/sandbox-credentials/{id}` requires detachment first. Detaching
+  stops future provisioning; **it does not remove existing file copies or revoke
+  provider tokens**. Use deliberate cleanup/revocation where required.
+
+The controller resolves only grants for the selected sandbox. File materialization
+happens at run admission, before agent-directed work, through the worker. Targets
+cannot traverse links, hardlinks or attached mounts; replacements are atomic and
+mode 0600. An existing regular file at the configured destination is replaced.
+Partial multi-file provisioning can leave earlier granted files in place if another
+path is rejected; no agent turn starts after that rejection. Do not attach mutable
+native OAuth state as a static file secret: repeated provisioning could overwrite
+refreshed native state.
+
+Environment values reach each operation only **after** namespace/cgroup bootstrap,
+never the supervisor or interpreter launch environment. Reserved execution controls
+(PATH/HOME/preload/interpreter/proxy/config variables) cannot be credential targets.
+Values are available to sandbox commands and native apps, not only a particular bot.
+Threads sharing this UID/home can retain copies; sandbox grants are not thread
+confidentiality. No controller environment or existing credentials are imported.
+Already-running processes retain their environment; changes are admitted only idle.
+
+An existing CLI wrapper may override an injected variable. For Pi/Exa, migrate the
+wrapper to prefer explicitly supplied `EXA_API_KEY`; any legacy systemd credential
+fallback must be removed by the operator after migration if detachment should remove
+that access. This implementation never reads or moves current deployment credentials.
+
+### Generic home clearing (not account recycling)
+
+`POST /api/v1/sandboxes/{id}/clear-home` requires the current `confirmation` name,
+current `generation`, and explicit `keep_dotfiles` boolean. Settings exposes:
+
+- **Clear home, keep dotfiles**: keep every top-level dotfile/dot-directory, including
+  any logins, caches, sessions, extensions and settings there. This is not login-only
+  preservation. Hidden files inside a removed non-hidden directory are removed too.
+- **Clear home, including dotfiles**: remove home contents including native logins
+  stored there. No application-specific login paths are hardcoded or discovered.
+
+Both actions preserve mounts and their parent directories, unlink rather than follow
+symlinks, and recreate the configured workspace/private temporary directory. They do
+not clear the controller home, database memory/scratchpads, conversation history,
+centrally stored credentials, or provider-side tokens. Attached static credential
+files are provisioned again at the next run. Future scheduled messages are not deleted.
+
+Core first commits a durable maintenance intent, marks the sandbox unavailable and
+advances its generation; queued bot inbox work and paused/active runs are cancelled.
+It waits for release of the run lease. The worker then kills/verifies its entire
+run cgroup subtree and refuses unexpected service processes before deleting anything.
+Pool identities must remain exclusive: no unrelated login sessions/processes under
+that UID and no concurrent administrator mount changes. Separate-UID/systemd tests
+are still required; same-UID fake-cgroup tests are not this assurance.
+
+Only confirmed cleanup restores availability. Partial failure, lost result or
+interrupted controller leaves quarantine; startup never retries maintenance.
+The request generation prevents stale browser submissions from clearing a newer
+home. Cleanup cannot undo uncertain external effects; inspect retained execution
+intents. Quarantine/recovery remains an operator task, not an ordinary Retire button
+or automatic account reuse. This is reset within the same logical sandbox identity.
 
 ## Worker provisioning
 
@@ -226,14 +316,17 @@ stable UID/GID base, private homes/groups, delegated restricted units and resour
 limits. `workerPlugins = [ "openbot_pi" ];` selects installed adapter modules;
 `cliPaths.pi` optionally pins its worker executable. `python` must contain core,
 adapter packages and their existing dependencies. `packages` controls worker PATH.
-The module is syntax-checked only, not evaluated/deployed against the site's pinned
-configuration. There is no safe pool shrink/renumber/recycle hook.
+Its read-only `resourceInventory` option derives names, UIDs and sockets from the
+same `userPrefix`/`poolSize` options as the worker units (defaults `openbot-sbx`, 16).
+Pass it as the controller's `SANDBOX_RESOURCES`; the controller need not reconstruct
+usernames or paths. The current module change is syntax-checked, not activated or
+fully evaluated against site infrastructure. There is no safe pool shrink/renumber/recycle hook.
 
 Child environments allow only PATH, locale and CA paths from the **worker service**,
 then set its HOME/USER/LOGNAME and a private per-operation TMPDIR. Server environment,
 DB/model/operator credentials, arbitrary preload/profile/proxy variables are not
-forwarded. Extra worker-only extension keys need private native configuration or an
-explicit worker-only CLI wrapper, not a copy of the controller environment. Project
+forwarded. Worker-only extension keys can use explicit named sandbox environment grants,
+private native configuration or a worker-only CLI wrapper, not a copy of the controller environment. Project
 devenv activation is an explicit worker command. Shells use non-login `bash -c`.
 Existing HTTP implementations run with this clean environment. Output spill files remain in the worker workspace. CLI
 temporary prompts are created in the worker (0600); the supervisor removes each
@@ -287,8 +380,9 @@ state and cleanup control flow; they do **not** prove actual cross-UID, kernel c
 namespace, filesystem or network isolation. Pi adapter tests use the installed
 sibling plugin with a fake executable, not a live provider login/continuation pilot.
 
-Deferred: audited server plugin/MCP adapters, scoped management GUI, credential grant
-store/broker, deployment reconciliation, automatic recycling/safe pool shrink,
+Deferred: audited server plugin/MCP adapters, scoped memory/scratchpad management GUI,
+shared OAuth/refresh broker, detachable identity storage, deployment reconciliation,
+automatic recycling/safe pool shrink,
 backend-created resources and a public/Podman backend. Durable delivery cannot give
 exactly-once external shell/HTTP effects; uncertain effects need inspection or
 idempotency at the external system.
