@@ -19,7 +19,8 @@ def parse_mentions(content: str) -> list[str]:
 
 def resolve_targets(*, sender: Actor | None, mentioned_handles: list[str], to_handles: list[str],
                     actors_by_handle: dict[str, Actor], thread_bot_ids: list[str],
-                    default_bot_id: str | None = None) -> list[Actor]:
+                    default_bot_id: str | None = None,
+                    participant_ids: list[str] | None = None) -> list[Actor]:
     if sender is None:
         return []
     ordered: list[Actor] = []
@@ -36,8 +37,16 @@ def resolve_targets(*, sender: Actor | None, mentioned_handles: list[str], to_ha
         ordered = actionable[:1]
     # If a bot mentioned a handle that didn't resolve to any actionable bot (unknown
     # handle, bot not in thread, disabled bot), fall back to the thread's default bot
-    # so the handoff isn't silently dropped.
-    if not ordered and sender is not None and sender.kind == "bot" and default_bot_id is not None:
+    # so the handoff isn't silently dropped. A bot that addresses a human or external participant
+    # (`@you, which option?`) has handed over to them: every non-bot participant receives the message
+    # anyway, and waking the lead as well would have it answer on the human's behalf or act alongside
+    # the external actor. Such an address only falls back when the actor is not in the thread, since
+    # nobody would receive it then.
+    addressed_participant = participant_ids is not None and any(
+        (a := actors_by_handle.get(h)) is not None and a.kind != "bot" and a.id in participant_ids
+        for h in mentioned_handles)
+    if (not ordered and sender is not None and sender.kind == "bot" and default_bot_id is not None
+            and not addressed_participant):
         default = [a for a in actors_by_handle.values() if a.id == default_bot_id and a.kind == "bot"]
         ordered = [a for a in default if a.enabled and a.id != sender.id]
     # Text that merely looks like a mention but names no real actor ("thread lead is @bot", written as

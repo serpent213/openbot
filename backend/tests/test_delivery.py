@@ -89,6 +89,21 @@ async def test_default_bot_routes_message_with_unresolvable_looking_mention(serv
         assert res.unaddressed is False
 
 
+async def test_bot_asking_the_human_does_not_wake_the_default_bot(services):
+    """A delegate's "@you, which option?" goes to the human only; the lead is woken by an unmentioned
+    delegate reply, not by one addressed to a participant."""
+    chief, eng = await seed(services, bot_actor("chief_of_staff"), bot_actor("eng"))
+    async with services.session_factory() as s:
+        you = await human_actor(s)
+        t = await create_thread(services, s, title="t", handles=["eng"], created_by=you)
+        asked = await post_message(services, s, thread_id=t.id, sender=eng, content="@you, option A or B?")
+        assert asked.addressed == [] and asked.unaddressed is False
+        done = await post_message(services, s, thread_id=t.id, sender=eng, content="Done.")
+        assert [a.id for a in done.addressed] == [chief.id]
+    assert {(i.actor_id, i.message_id) for i in await items(services)} == {
+        (you.id, asked.message.id), (you.id, done.message.id), (chief.id, done.message.id)}
+
+
 async def test_changed_default_and_explicit_mention_precedence(services):
     chief, eng, rev = await seed(services, bot_actor("chief_of_staff"), bot_actor("eng"), bot_actor("rev"))
     async with services.session_factory() as s:

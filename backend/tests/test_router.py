@@ -140,6 +140,48 @@ def test_bot_mentions_unknown_handle_falls_back_to_default_bot():
     assert [b.handle for b in t] == ["chief_of_staff"]
 
 
+def test_bot_addressing_human_participant_does_not_wake_default_bot():
+    """A delegate asking @you hands over to the human, who receives the message as a participant;
+    waking the lead as well would have it answer for the human."""
+    t = resolve_targets(
+        sender=ACTORS["eng"],
+        mentioned_handles=["you"],
+        to_handles=[],
+        actors_by_handle=ACTORS_WITH_COS,
+        thread_bot_ids=["id-eng", "id-cos"],
+        default_bot_id="id-cos",
+        participant_ids=["id-eng", "id-cos", "id-you"],
+    )
+    assert t == []
+
+
+def test_bot_addressing_external_participant_does_not_wake_default_bot():
+    t = resolve_targets(
+        sender=ACTORS["eng"],
+        mentioned_handles=["ci"],
+        to_handles=[],
+        actors_by_handle=ACTORS_WITH_COS,
+        thread_bot_ids=["id-eng", "id-cos"],
+        default_bot_id="id-cos",
+        participant_ids=["id-eng", "id-cos", "id-ci"],
+    )
+    assert t == []
+
+
+def test_bot_addressing_non_participant_actor_falls_back_to_default_bot():
+    """An external actor outside the thread would receive nothing, so the lead picks it up."""
+    t = resolve_targets(
+        sender=ACTORS["eng"],
+        mentioned_handles=["ci"],
+        to_handles=[],
+        actors_by_handle=ACTORS_WITH_COS,
+        thread_bot_ids=["id-eng", "id-cos"],
+        default_bot_id="id-cos",
+        participant_ids=["id-eng", "id-cos", "id-you"],
+    )
+    assert [b.handle for b in t] == ["chief_of_staff"]
+
+
 def test_bot_mentions_disabled_bot_falls_back_to_default_bot():
     """Bot mentions a disabled bot → default bot picks up the handoff."""
     t = resolve_targets(

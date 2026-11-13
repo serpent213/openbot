@@ -221,7 +221,7 @@ async def post_message(services, session: AsyncSession, *, thread_id: str, sende
         default_bot_id = by_handle[DEFAULT_BOT_HANDLE].id
     targets = resolve_targets(sender=sender, mentioned_handles=mentioned, to_handles=to_handles,
                               actors_by_handle=by_handle, thread_bot_ids=thread_bot_ids,
-                              default_bot_id=default_bot_id) if deliver else []
+                              default_bot_id=default_bot_id, participant_ids=part_ids) if deliver else []
     unaddressed = deliver and sender is not None and not targets and not (mentioned or to_handles)
     # A bot hands off only when it has nothing else waiting in this thread: messages that arrived while
     # it was working are its next run's triggers, and if its reply woke another bot now, that bot would
