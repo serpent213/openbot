@@ -60,10 +60,20 @@ def alive(pid: int) -> bool:
         # the orphan yet. kill(pid, 0) alone also reports zombies as alive.
         try:
             state = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[0]
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
+            # procfs can disappear after open(), during read(), once the child exits.
             return False
         return state not in ("Z", "X")
     return True
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux procfs race")
+def test_alive_tolerates_process_exit_during_procfs_read(monkeypatch):
+    monkeypatch.setattr(os, "kill", lambda *_: None)
+    def exited(*_args, **_kwargs):
+        raise ProcessLookupError("process exited during read")
+    monkeypatch.setattr(Path, "read_text", exited)
+    assert not alive(12345)
 
 
 def test_resolve_in_workspace(tmp_path):
