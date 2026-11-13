@@ -311,7 +311,7 @@ share each other's groups or the controller UID. Existing sockets fail closed;
 stop/reconcile the service instead of replacing a live endpoint. Root-created
 socket activation is not used: `SO_PEERCRED` must identify the worker socket creator.
 
-`nix/sandboxes.nix` remains opt-in and **unactivated**: default pool 16, explicit
+`nix/sandboxes.nix` is opt-in and activates nothing unless imported and enabled: default pool 16, explicit
 stable UID/GID base, private homes/groups, delegated restricted units and resource
 limits. `workerPlugins = [ "openbot_pi" ];` selects installed adapter modules;
 `cliPaths.pi` optionally pins its worker executable. `python` must contain core,
@@ -319,8 +319,9 @@ adapter packages and their existing dependencies. `packages` controls worker PAT
 Its read-only `resourceInventory` option derives names, UIDs and sockets from the
 same `userPrefix`/`poolSize` options as the worker units (defaults `openbot-sbx`, 16).
 Pass it as the controller's `SANDBOX_RESOURCES`; the controller need not reconstruct
-usernames or paths. The current module change is syntax-checked, not activated or
-fully evaluated against site infrastructure. There is no safe pool shrink/renumber/recycle hook.
+usernames or paths. The VM test below evaluates and boots it; site configuration
+(firewall, store visibility, extra masks) is the operator's. There is no safe pool
+shrink/renumber/recycle hook.
 
 Child environments allow only PATH, locale and CA paths from the **worker service**,
 then set its HOME/USER/LOGNAME and a private per-operation TMPDIR. Server environment,
@@ -393,12 +394,145 @@ import ./nix/tests/sandboxes.nix { inherit pkgs; runtime = python.withPackages (
 ```
 
 Neither suite covers site policy (firewall, Nix daemon, proc/filesystem masks of the
-actual container), Proxmox/LXC prerequisites or real CLI logins; check those on the
-deployment.
+actual container), Proxmox/LXC prerequisites or real CLI logins: pilot steps 2, 3,
+6 (with real workers), 7 and 8 remain checks on the deployment.
 
-Deferred: audited server plugin/MCP adapters, scoped memory/scratchpad management GUI,
-shared OAuth/refresh broker, detachable identity storage, deployment reconciliation,
-automatic recycling/safe pool shrink,
-backend-created resources and a public/Podman backend. Durable delivery cannot give
-exactly-once external shell/HTTP effects; uncertain effects need inspection or
-idempotency at the external system.
+## Design notes
+
+### Scope and threat model
+
+Sandboxes keep Openbot usable in its single-account mode while letting one server
+coordinate work under separate filesystem identities and selected internal-service
+permissions. The concern is prompt injection making an otherwise useful agent read
+unrelated credentials or operate another project's services. This is not hostile
+multi-tenant hosting: the operator, the server and installed server plugins are
+trusted. OS isolation limits tool execution; it cannot remove malicious instructions
+or prevent misuse of access deliberately granted to a sandbox. Kernel and container
+escapes are outside the prototype's guarantees.
+
+Choices made for the prototype:
+
+- Single-account execution is unchanged when sandboxing is disabled. A missing or
+  unavailable sandbox never falls back to Host.
+- A thread selects a sandbox and every agent in that thread inherits it. Several
+  threads may share one sandbox and its Unix identity on purpose.
+- Homes, checkouts, credentials and assignments persist between runs.
+- The first backend uses separate Unix users and systemd workers, preprovisioned by
+  NixOS (default 16). The contract also allows backend-created resources later.
+- Ordinary internet access stays; selected local services are protected, rather
+  than maintaining domain allowlists.
+- Sandbox semantics and mandatory routing live in core; backends stay replaceable.
+  A small Podman backend should later test whether the contract is portable.
+- No new third-party dependencies where a reasonable alternative exists.
+
+### Where the agent loop runs
+
+The internal Python agent loop stays in the unprivileged, trusted server. Shell, file,
+HTTP and coding-CLI operations run in the selected worker:
+
+```text
+Operator UI / chat channels
+          |
+Openbot server UID
+  conversations, model requests, memory, scoped host tools, credentials
+          |
+  fixed sandbox assignment + execution requests
+          |
+Sandbox worker UID
+  shell, file operations, HTTP, coding CLI and its subprocesses
+          |
+private home / checkout / permitted network services
+```
+
+The loop interprets model responses and never evaluates model-supplied code in the
+server. Every path to executable code or host access goes through the worker or an
+explicitly scoped trusted tool, which is why subprocesses, file access, output
+spilling, directory browsing, MCP and plugin tools are all routed or refused, not just
+`run_shell`. Running the whole loop as the sandbox UID would need narrow, per-run
+authenticated model, persistence and memory APIs; copying the server configuration
+there would hand model keys, the database and encryption keys to that sandbox's shell.
+
+Coding CLIs run their own loops inside the worker and keep native logins in its private
+home. Anything readable by the worker UID is readable by its commands; use scoped
+accounts where possible and never share the server home.
+
+### Backend contract
+
+Core owns sandbox identity, thread assignment, API/UI, authorization, scheduling and
+routing, and refuses a run its sandbox cannot satisfy. A sandbox has an immutable ID,
+a name, a resource binding and an observed state; the resource (Unix account,
+container) is not the sandbox's identity. A backend, method names still open, must:
+
+1. describe capabilities and discover preprovisioned resources;
+2. allocate an existing resource, or create one where supported and permitted;
+3. execute processes with bounded streams, cancellation and exit status;
+4. perform file operations in the same isolation context;
+5. stop execution and report health;
+6. retire a binding, with separate explicit cleanup where it owns the resource.
+
+Requests are structured, never a generic root shell. Externally managed accounts are
+never deleted by Openbot. Unsupported capabilities are visible in the UI and rejected
+by the API. Build a second backend before freezing a public registration API, expose
+one registration point rather than many lifecycle hooks, and let a Podman backend use
+container handles instead of pretending to be Unix accounts.
+
+### Accounts, allocation and retirement
+
+The pool follows NixOS's build users: `makeNixBuildUser` in
+[`nix.nix`](https://github.com/NixOS/nixpkgs/blob/master/nixos/modules/config/nix.nix)
+generates `nixbld1..N` from a UID base, and Nix's
+[`user-lock.cc`](https://github.com/NixOS/nix/blob/master/src/libstore/unix/user-lock.cc)
+leases one per build with a per-UID file lock. Openbot reuses NixOS's declarative
+account machinery, not its own passwd editing, so `users.mutableUsers` does not
+matter. Pool accounts get private primary groups, stable IDs in a range compatible
+with the container mapping, locked logins and 0700 homes under a root-owned parent.
+They never get sudo, Docker, broad groups or Nix trusted-user status. Nix daemon
+builders and fetchers run outside the operation cgroup and under other UIDs, so a site
+must deny or explicitly mediate them.
+
+Unlike a build lease, the sandbox-to-resource mapping is durable: sixteen accounts
+mean sixteen allocated sandboxes. Restart reconciles assignments and incomplete
+operations before anything is offered as free; a released lock is not evidence of
+cleanup, and inconsistent state leaves a resource unavailable. A resource never
+returns to the pool after a turn. Retirement stops all processes, revokes
+resource-specific network access and quarantines or explicitly cleans state, without
+following sandbox-controlled paths into the host. Avoid reusing a UID while its files
+or grants are reachable. Growing the pool adds accounts without renumbering;
+shrinking needs draining and a pre-removal check, since deleting an account neither
+stops its processes nor removes its files. Dynamic policy or account creation, if
+ever needed, belongs in a narrow broker, never in systemd D-Bus, sudo, firewall
+command strings or generated NixOS activation.
+
+### Secrets, network and plugins
+
+- Subprocess environments are allowlists. Server API keys, model credentials, the
+  database and encryption keys never reach worker homes, environments, inherited
+  descriptors or visible process state.
+- Worker sockets authenticate the controller; a worker cannot impersonate it or
+  reach another sandbox. Worker output is untrusted data, never control-plane input.
+- Built-in HTTP runs under the sandbox UID so user-based firewall rules apply.
+  Network policy belongs to the operator; reassignment never inherits a former
+  sandbox's grants. Read-only Nix store paths are not necessarily non-secret.
+- Delegation inherits the current binding and can never select a more privileged
+  sandbox or Host through model-controlled arguments. Cross-sandbox messages share
+  information; the receiver's permissions are unchanged.
+- Server plugins run with server privileges. Each tool must be classified as
+  worker-executed or explicitly scoped host work; unadapted tools stay unavailable in
+  sandbox mode. Per-agent SQL spaces are not an OS boundary: on PostgreSQL the SQL
+  plugin enters restricted roles with `SET ROLE` on the server's own login. An adapted
+  version should connect from the worker with peer authentication, one login role per
+  pool account, so the database itself enforces the boundary.
+- A sandbox change starts a new thread; private state and CLI sessions never cross it.
+
+## Open work
+
+- Audited worker adapters for server plugins and MCP tools (kanban, SQL); until then
+  bots with those tools cannot run in sandboxed threads.
+- Per-sandbox network grants; today one site policy applies to every worker.
+- Login identities that survive slot recycling, and a shared OAuth/refresh broker.
+- Deployment reconciliation, recycling and safe pool shrink.
+- Scoped memory/scratchpad management UI.
+- Backend-created resources and a public backend API, tested with Podman.
+
+Durable delivery cannot give exactly-once external shell/HTTP effects; uncertain
+effects need inspection or idempotency at the external system.
