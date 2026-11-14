@@ -89,6 +89,25 @@
   --radius-ui: 3px;
 }
 
+/* Installed/mobile shell: safe areas are outside the scrolling content. */
+.app-viewport {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--app-top, 0px);
+  height: var(--app-height, 100dvh);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overscroll-behavior: none;
+}
+.app-drawer {
+  top: calc(var(--app-top, 0px) + env(safe-area-inset-top));
+  height: calc(var(--app-height, 100dvh) - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  left: env(safe-area-inset-left);
+}
+@media (max-width: 767px) {
+  /* Safari zooms focused controls below 16px; do not disable user zoom. */
+  input:not([type="checkbox"]):not([type="radio"]), textarea, select { font-size: 16px !important; }
+}
+
 /* ── Base ──────────────────────────────────────────────────────────────────── */
 @layer base {
   html { font-family: var(--font-mono); font-size: 14px; }

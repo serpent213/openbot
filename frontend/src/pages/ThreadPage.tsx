@@ -223,7 +223,7 @@ export default function ThreadPage() {
     </select>
   );
   return (
-    <div className="mx-auto flex h-[calc(100vh-2rem)] max-w-4xl flex-col md:h-[calc(100vh-3rem)]">
+    <div className="mx-auto flex h-full min-h-0 max-w-4xl flex-col">
       <header className="thread-header sticky top-0 z-10 border-b border-line bg-canvas">
         <div className="thread-header-main flex min-w-0 items-center gap-1.5">
           <Link to="/threads" aria-label="Back to threads" title="Back to threads" className="thread-header-back inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-ui text-muted hover:bg-sunken hover:text-fg">

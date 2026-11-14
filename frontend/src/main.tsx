@@ -11,6 +11,9 @@ import "@fontsource/ibm-plex-sans/400-italic.css";
 import "@fontsource/ibm-plex-sans/500.css";
 import "@fontsource/ibm-plex-sans/600.css";
 import "./index.css";
+import { trackViewport } from "./lib/viewport";
+
+trackViewport();
 
 const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000, retry: 1 }, mutations: { networkMode: "always", retry: false } } });
 ReactDOM.createRoot(document.getElementById("root")!).render(

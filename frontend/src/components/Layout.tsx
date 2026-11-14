@@ -148,13 +148,13 @@ export default function Layout() {
   const effectiveWidth = collapsed ? COLLAPSED_WIDTH : narrow ? Math.min(width, 280) : width;
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="app-viewport flex overflow-hidden">
       {/* On a phone the open drawer floats over the page; a tap outside closes it. */}
       {narrow && drawerOpen && <div className="fixed inset-0 z-30 bg-overlay" onClick={() => setDrawerOpen(false)} aria-hidden />}
       {narrow && drawerOpen && <div className="shrink-0" style={{ width: COLLAPSED_WIDTH }} aria-hidden />}
       {/* ── Sidebar ──────────────────────────────────────────────────────────── */}
       <aside
-        className={`flex h-full shrink-0 flex-col overflow-hidden border-r border-line bg-surface transition-[width] duration-200 ease-in-out ${narrow && drawerOpen ? "fixed inset-y-0 left-0 z-40 shadow-[0_0_60px_-10px_rgb(0_0_0/0.5)]" : ""}`}
+        className={`flex h-full shrink-0 flex-col overflow-hidden border-r border-line bg-surface transition-[width] duration-200 ease-in-out ${narrow && drawerOpen ? "app-drawer fixed z-40 shadow-[0_0_60px_-10px_rgb(0_0_0/0.5)]" : ""}`}
         style={{ width: effectiveWidth }}
       >
         {/* ── Expanded content ───────────────────────────────────────────────── */}
