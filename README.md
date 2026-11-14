@@ -91,6 +91,15 @@ OpenAI or Ollama, or none). Both are stored encrypted in OpenBot's database and 
 Settings; nothing goes into `.env`. When the wizard completes, OpenBot seeds the human actor `@you`
 and four demo bots: `chief_of_staff`, `engineer`, `reviewer`, `qa`.
 
+### Installed browser app (PWA)
+
+The production web UI supports installation over trusted HTTPS, with the hexagonal
+OpenBot icon, standalone launch, mobile keyboard/safe-area handling, and reconnection
+without leaving the conversation. Text drafts can persist locally; they are plaintext,
+not synced, and configurable under Settings → Browser access. Only public UI assets
+are cached, never API responses or offline commands. Updates require an explicit reload.
+See [the PWA guide](docs/pwa.md) for icon refresh on iOS, storage limits and device checks.
+
 ### Desktop app (Electron)
 
 The Electron desktop app is an optional shell around the same frontend and HTTP/SSE API; the browser

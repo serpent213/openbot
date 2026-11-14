@@ -7,7 +7,10 @@ it("matches browser chrome to explicit theme and later system changes", async ()
   const system = Object.assign(new EventTarget(), { matches: true });
   localStorage.setItem("openbot:theme", "light");
   let observer: MutationObserver | undefined;
-  class Observer extends MutationObserver { constructor(callback: MutationCallback) { super(callback); observer = this; } }
+  class Observer {
+    constructor(callback: MutationCallback) { observer = new MutationObserver(callback); }
+    observe(target: Node, options: MutationObserverInit) { observer!.observe(target, options); }
+  }
   try {
     runInNewContext(readFileSync("public/theme-init.js", "utf8"), { document, localStorage, window: { matchMedia: () => system }, MutationObserver: Observer });
     const colors = () => [...document.querySelectorAll('meta[name="theme-color"]')].map((m) => m.getAttribute("content"));

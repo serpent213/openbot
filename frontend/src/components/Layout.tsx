@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { Api } from "../api/client";
@@ -11,6 +11,8 @@ import BotActivityIndicator from "./BotActivityIndicator";
 import BotIcon from "./BotIcon";
 import ThemeToggle from "./ThemeToggle";
 import NewThreadControl from "./NewThreadControl";
+import PageBoundary from "./PageBoundary";
+import { Spinner } from "./ui";
 import { BotsIcon, InboxIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, SettingsIcon, ThreadsIcon } from "./icons";
 
 // ── Local-storage helpers ─────────────────────────────────────────────────────
@@ -269,7 +271,9 @@ export default function Layout() {
 
       {/* ── Main content ──────────────────────────────────────────────────────── */}
       <main className="scrollbar-subtle min-w-0 flex-1 overflow-y-auto p-4 md:p-6">
-        <Outlet />
+        <PageBoundary key={pathname}>
+          <Suspense fallback={<div className="flex h-full items-center justify-center" role="status" aria-label="Loading page"><Spinner /></div>}><Outlet /></Suspense>
+        </PageBoundary>
       </main>
     </div>
   );
