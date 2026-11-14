@@ -12,7 +12,7 @@ import "@fontsource/ibm-plex-sans/500.css";
 import "@fontsource/ibm-plex-sans/600.css";
 import "./index.css";
 
-const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000, retry: 1 } } });
+const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000, retry: 1 }, mutations: { networkMode: "always", retry: false } } });
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={qc}><BrowserRouter><App /></BrowserRouter></QueryClientProvider>

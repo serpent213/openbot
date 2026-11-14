@@ -4,7 +4,7 @@ import type { Actor, AppSetting, Bot, BotCatalogEntry, DirectoryListing, McpCata
 export interface ScheduledMessage { id: string; thread_id: string; content: string; due_at: string; status: string; attempts: number; last_error?: string | null; result_message_id?: string | null; to_handles: string[]; }
 
 export interface AttachmentIn { url: string; name?: string; }
-import { ApiError, backendUnavailableEvent, isBackendUnavailable } from "./errors";
+import { ApiError, backendAvailableEvent, backendUnavailableEvent, isBackendUnavailable } from "./errors";
 import type { CredentialInput, ExecutionTarget, Sandbox, SandboxCredential, SandboxInventory } from "./types";
 
 export { ApiError } from "./errors";
@@ -30,10 +30,11 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown;
   let body: BodyInit | undefined;
   if (init.json !== undefined) { headers["Content-Type"] = "application/json"; body = JSON.stringify(init.json); }
   let r: Response;
-  try { r = await fetch(BASE + path, { ...init, headers, body }); }
+  try { r = await fetch(BASE + path, { ...init, cache: "no-store", headers, body }); }
   catch (err) { if (err instanceof TypeError) window.dispatchEvent(new CustomEvent(backendUnavailableEvent)); throw err; }
   if (r.status === 401) window.dispatchEvent(new CustomEvent("openbot:unauthorized"));
   if (!r.ok) { const text = await r.text().catch(() => ""); const err = new ApiError(r.status, text || r.statusText); if (isBackendUnavailable(err)) window.dispatchEvent(new CustomEvent(backendUnavailableEvent)); throw err; }
+  window.dispatchEvent(new CustomEvent(backendAvailableEvent));
   return r.status === 204 ? (undefined as T) : r.json();
 }
 

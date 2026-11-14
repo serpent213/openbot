@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, backendFallbackPath, backendFallbackPathFor, backendUnavailableEvent, isBackendUnavailable, isUnavailableStatus } from "./errors";
+import { ApiError, backendUnavailableEvent, isBackendUnavailable, isUnavailableStatus } from "./errors";
 
 describe("isUnavailableStatus", () => {
   it("treats 5xx as backend unavailable regardless of body", () => {
@@ -56,12 +56,6 @@ describe("isBackendUnavailable", () => {
     expect(isBackendUnavailable(new ApiError(404, '{"detail":"thread not found"}'))).toBe(false);
     expect(isBackendUnavailable(new ApiError(404, '{"detail":"run not found"}'))).toBe(false);
     expect(isBackendUnavailable(new ApiError(404, '{"detail":"bot not found"}'))).toBe(false);
-  });
-
-  it("home fallback target has a loop guard", () => {
-    expect(backendFallbackPath).toBe("/inbox");
-    expect(backendFallbackPathFor("/threads/abc")).toBe("/inbox");
-    expect(backendFallbackPathFor("/inbox")).toBe(null); // already home: no redirect loop
   });
 
   it("event name constant", () => {

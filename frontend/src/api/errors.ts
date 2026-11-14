@@ -48,19 +48,8 @@ export function isBackendUnavailable(error: unknown): boolean {
   return error instanceof TypeError;
 }
 
-/** Where "go home" lands: the default view is the inbox. */
-export const backendFallbackPath = "/inbox";
-
-/**
- * Path to navigate to when the backend is unavailable, with a loop guard:
- * if the user is already on the fallback view, return null so callers don't
- * re-trigger navigation (the home view's own failing queries then just show
- * the friendly offline copy until the backend is back).
- */
-export function backendFallbackPathFor(currentPath: string | null): string | null {
-  if (currentPath === backendFallbackPath) return null;
-  return backendFallbackPath;
-}
+/** A successful API response confirms connectivity, not completion of a prior mutation. */
+export const backendAvailableEvent = "openbot:backend-available";
 
 /** Fired (from client.ts) whenever a request fails with a backend-unavailable error. */
 export const backendUnavailableEvent = "openbot:backend-unavailable";

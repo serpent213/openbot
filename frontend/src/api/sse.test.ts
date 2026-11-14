@@ -31,6 +31,14 @@ describe("subscribeBusEvents", () => {
     expect(onReconnect).toHaveBeenCalledTimes(2);
   });
 
+  it("reconciles the first open when replacing a suspended connection", () => {
+    const es = new FakeEventSource();
+    const reconcile = vi.fn();
+    subscribeBusEvents("/events", vi.fn(), reconcile, () => es as unknown as EventSource, true);
+    es.onopen!();
+    expect(reconcile).toHaveBeenCalledTimes(1);
+  });
+
   it("works without an onReconnect callback", () => {
     const es = new FakeEventSource();
     subscribeBusEvents("/events", vi.fn(), undefined, () => es as unknown as EventSource);

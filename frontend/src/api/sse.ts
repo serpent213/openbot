@@ -1,3 +1,4 @@
+import { onPageResume } from "../lib/resume";
 import { pluginEvents } from "../plugins/events";
 import { useEffect, useRef } from "react";
 import { BASE, getApiKey } from "./client";
@@ -20,9 +21,10 @@ export function subscribeBusEvents(
   onEvent: (e: BusEvent) => void,
   onReconnect?: () => void,
   open: (u: string) => EventSource = (u) => new EventSource(u),
+  reconcileOnOpen = false,
 ): () => void {
   const es = open(url);
-  let opened = false;
+  let opened = reconcileOnOpen;
   es.onopen = () => {
     if (opened) onReconnect?.();
     opened = true;
@@ -44,17 +46,25 @@ export function useBusEvents(
     reconnected.current = onReconnect;
   });
   useEffect(() => {
-    const connect = () => {
+    const connect = (resuming = false) => {
       const params = new URLSearchParams();
       if (threadId) params.set("thread_id", threadId);
       const key = getApiKey();
       if (key) params.set("api_key", key);
-      return subscribeBusEvents(`${BASE}/events?${params}`, (e) => cb.current(e), () => reconnected.current?.());
+      return subscribeBusEvents(`${BASE}/events?${params}`, (e) => cb.current(e), () => reconnected.current?.(), undefined, resuming);
     };
     let close = connect();
     // Settings saves no longer reload the page; live subscriptions need the new credential too.
-    const onKeyChanged = () => { close(); close = connect(); };
-    window.addEventListener("openbot:api-key-changed", onKeyChanged);
-    return () => { window.removeEventListener("openbot:api-key-changed", onKeyChanged); close(); };
+    const reconnect = () => { close(); close = connect(true); };
+    const stop = onPageResume(reconnect);
+    const offline = () => close();
+    window.addEventListener("offline", offline);
+    window.addEventListener("openbot:api-key-changed", reconnect);
+    return () => {
+      stop();
+      window.removeEventListener("offline", offline);
+      window.removeEventListener("openbot:api-key-changed", reconnect);
+      close();
+    };
   }, [threadId]);
 }

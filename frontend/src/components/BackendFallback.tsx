@@ -1,29 +1,32 @@
-import { useEffect } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { backendFallbackPathFor, backendUnavailableEvent } from "../api/errors";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { backendAvailableEvent, backendUnavailableEvent } from "../api/errors";
+import { onPageResume } from "../lib/resume";
 
-/**
- * Global handler for "the backend is down / restarting". The API client fires
- * `openbot:backend-unavailable` on 404, 5xx or network failure; this component
- * navigates the user to the default home view (inbox) instead of leaving them
- * on a page showing the raw error.
- *
- * The navigation is guarded against loops: while the user is already on the
- * home view, failing queries there only swap in the friendly offline copy —
- * no navigation is re-triggered.
- */
+/** Keep the reader's route and draft through transient outages. Only reads are
+ * refreshed: reconnecting must never replay a message or operator mutation. */
 export default function BackendFallback({ children }: { children: React.ReactNode }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-
+  const qc = useQueryClient();
+  const [unavailable, setUnavailable] = useState(() => navigator.onLine === false);
   useEffect(() => {
-    const goHome = () => {
-      const target = backendFallbackPathFor(location.pathname);
-      if (target) navigate(target, { replace: true });
+    const down = () => setUnavailable(true);
+    const up = () => setUnavailable(false);
+    const resume = onPageResume(() => { void qc.invalidateQueries(); });
+    window.addEventListener(backendUnavailableEvent, down);
+    window.addEventListener("offline", down);
+    window.addEventListener(backendAvailableEvent, up);
+    return () => {
+      resume();
+      window.removeEventListener(backendUnavailableEvent, down);
+      window.removeEventListener("offline", down);
+      window.removeEventListener(backendAvailableEvent, up);
     };
-    window.addEventListener(backendUnavailableEvent, goHome);
-    return () => window.removeEventListener(backendUnavailableEvent, goHome);
-  }, [navigate, location.pathname]);
-
-  return <>{children}</>;
+  }, [qc]);
+  return <>
+    {unavailable && <div role="status" className="fixed right-3 top-3 z-50 max-w-sm rounded-ui border border-warn bg-surface p-3 text-sm shadow-lg">
+      Connection interrupted. Your place is preserved; reconnecting will refresh server state.
+      <button type="button" className="ml-2 underline" onClick={() => { void qc.invalidateQueries(); }}>Retry connection</button>
+    </div>}
+    {children}
+  </>;
 }
