@@ -4,7 +4,7 @@ import type { AttachmentIn } from "../api/client";
 import { Button, Kbd } from "./ui";
 import { CloseIcon } from "./icons";
 import { modKey } from "../lib/shortcuts";
-import { beginThreadSend, endThreadSend, getThreadDraft, onThreadSendFailed, setThreadDraft } from "../lib/threadDrafts";
+import { beginThreadSend, endThreadSend, getThreadDraft, hasUncertainSend, onThreadSendFailed, setThreadDraft } from "../lib/threadDrafts";
 
 // Paste constraints for attached images (client-side guard; the API re-validates).
 const MAX_IMAGES = 4;
@@ -124,6 +124,7 @@ export default function Composer({ threadId, handles, onSend, disabled, hint, au
   const canSend = !disabled && !sending && (!!text.trim() || attachments.length > 0);
   return (
     <div className="relative">
+      {hasUncertainSend(threadId) && !sending && <p role="status" className="mb-2 text-xs text-warn">A previous send may have reached the server. Check the conversation before sending this draft again.</p>}
       {options.length > 0 && (
         <div role="listbox" aria-label="Mention a bot" className="absolute bottom-full left-6 z-10 mb-1 w-60 overflow-hidden rounded-ui border border-line bg-surface py-1 shadow-[0_12px_32px_-12px_rgb(0_0_0/0.45)]">
           {options.map((h, i) => (
@@ -204,6 +205,7 @@ export default function Composer({ threadId, handles, onSend, disabled, hint, au
           </Button>
         </div>
       </div>
+      <p className="mt-1 text-[11px] text-faint">Local text-draft storage: Settings → Browser access. Images are not saved.</p>
     </div>
   );
 }

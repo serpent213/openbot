@@ -15,6 +15,8 @@ import PluginSettings from "../components/PluginSettings";
 import SandboxSettings from "../components/SandboxSettings";
 import CredentialSettings from "../components/CredentialSettings";
 
+import DraftSettings from "../components/DraftSettings";
+
 const SECTIONS = { general: "General", providers: "Providers & models", sandboxes: "Sandboxes", credentials: "Credentials", tools: "Tools & MCP", plugins: "Plugins", integrations: "Integrations", access: "Browser access" };
 const MODEL_GROUPS = ["Providers", "Embeddings", "Model routing"];
 
@@ -94,7 +96,7 @@ export default function SettingsPage() {
 
       {section === "tools" && <ToolsCard tools={tools} openGroups={openGroups} setOpenGroups={setOpenGroups} />}
 
-      {section === "access" && <Card className="space-y-3">
+      {section === "access" && <><DraftSettings /><Card className="space-y-3">
         <SectionTitle>API key</SectionTitle>
         <Hint>Only needed when the server sets OPENBOT_API_KEY. Stored in this browser.</Hint>
         <div className="flex gap-2">
@@ -111,7 +113,7 @@ export default function SettingsPage() {
           }}>Save</Button>
         </div>
         <ErrorText error={keyError} />
-      </Card>}
+      </Card></>}
         </div>
       </div>
     </div>

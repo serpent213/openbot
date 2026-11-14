@@ -1,4 +1,8 @@
+import { readDraft, storeDraft } from "./draftStorage";
+
 const drafts = new Map<string, string>();
+const loaded = new Set<string>();
+const uncertain = new Set<string>();
 // Bumped on every edit, so a send can tell "still what I sent" from "typed since", even when the text is the same.
 const revisions = new Map<string, number>();
 // Revision a send still in flight started from, per thread. Its text stays in `drafts` until the send
@@ -9,31 +13,52 @@ const failureListeners = new Map<string, Set<(text: string) => void>>();
 const revision = (threadId: string): number => revisions.get(threadId) ?? 0;
 
 export function getThreadDraft(threadId: string): string {
+  if (!loaded.has(threadId)) {
+    loaded.add(threadId);
+    const saved = readDraft(threadId);
+    if (saved) {
+      drafts.set(threadId, saved.text);
+      if (saved.uncertain) uncertain.add(threadId);
+    }
+  }
   return sending.get(threadId) === revision(threadId) ? "" : drafts.get(threadId) ?? "";
 }
 
 export function setThreadDraft(threadId: string, text: string): void {
+  loaded.add(threadId);
   revisions.set(threadId, revision(threadId) + 1);
+  storeDraft(threadId, text, uncertain.has(threadId));
   if (text) drafts.set(threadId, text);
   else drafts.delete(threadId);
 }
 
 export function clearThreadDraft(threadId: string): void {
+  loaded.add(threadId);
   drafts.delete(threadId);
   sending.delete(threadId);
+  uncertain.delete(threadId);
+  storeDraft(threadId, "");
 }
+
+export function hasUncertainSend(threadId: string): boolean { return uncertain.has(threadId); }
 
 export function beginThreadSend(threadId: string): number {
   const rev = revision(threadId);
   sending.set(threadId, rev);
+  uncertain.add(threadId);
+  storeDraft(threadId, drafts.get(threadId) ?? "", true);
   return rev;
 }
 
 /** Settles a send. Returns whether the draft is still the one that was sent, i.e. nothing was typed since. */
 export function endThreadSend(threadId: string, rev: number, ok: boolean): boolean {
   if (sending.get(threadId) === rev) sending.delete(threadId);
-  if (revision(threadId) !== rev) return false;
-  if (ok) drafts.delete(threadId);
+  if (ok) uncertain.delete(threadId);
+  if (revision(threadId) !== rev) {
+    storeDraft(threadId, drafts.get(threadId) ?? "", uncertain.has(threadId));
+    return false;
+  }
+  if (ok) { drafts.delete(threadId); storeDraft(threadId, ""); }
   else failureListeners.get(threadId)?.forEach((listener) => listener(drafts.get(threadId) ?? ""));
   return true;
 }
