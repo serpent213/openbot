@@ -43,6 +43,15 @@ it("can disable persistence while keeping the in-memory composer working", async
   expect(drafts.getThreadDraft("t")).toBe("memory only");
   expect(readDraft("t")).toBeUndefined();
 });
+it("does not claim deletion succeeded when browser storage refuses it", () => {
+  storeDraft("t", "keep until actually deleted");
+  const spy = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => { throw new Error("blocked"); });
+  try {
+    expect(deleteSavedDrafts()).toBe(false);
+    expect(() => setSavesDrafts(false)).toThrow("Could not delete saved drafts");
+    expect(readDraft("t")?.text).toBe("keep until actually deleted");
+  } finally { spy.mockRestore(); }
+});
 it("survives unavailable storage", async () => {
   const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
   try {

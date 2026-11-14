@@ -37,11 +37,14 @@ export function storeDraft(id: string, text: string, uncertain = false): void {
     try { localStorage.removeItem(PREFIX + id); } catch { /* memory remains authoritative */ }
   }
 }
-export function deleteSavedDrafts(): void {
-  try { for (const key of Object.keys(localStorage)) if (key.startsWith(PREFIX)) localStorage.removeItem(key); } catch { /* unavailable */ }
+export function deleteSavedDrafts(): boolean {
+  try {
+    for (const key of Object.keys(localStorage)) if (key.startsWith(PREFIX)) localStorage.removeItem(key);
+    return true;
+  } catch { return false; }
 }
 export function setSavesDrafts(enabled: boolean): void {
   // Surface preference failures to Settings rather than promising persistence.
+  if (!enabled && !deleteSavedDrafts()) throw new Error("Could not delete saved drafts");
   localStorage.setItem(PREFERENCE, enabled ? "on" : "off");
-  if (!enabled) deleteSavedDrafts();
 }
