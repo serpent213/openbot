@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import { pluginBuild } from "./plugin-build.ts";
+import { pwaBuild } from "./pwa-build.ts";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -9,7 +10,7 @@ const backendPort = process.env.VITE_BACKEND_PORT || "8000";
 const isElectronDev = process.env.ELECTRON_DEV === "1";
 
 export default defineConfig({
-  plugins: [pluginBuild(), react(), tailwindcss()],
+  plugins: [pluginBuild(), react(), tailwindcss(), pwaBuild()],
   server: {
     // Electron development is intentionally restart-to-update: Vite's watcher can consume
     // enough resources during repository changes to freeze the UI while sending messages.

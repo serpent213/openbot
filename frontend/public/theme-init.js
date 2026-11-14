@@ -2,7 +2,7 @@
 try {
   var t = localStorage.getItem("openbot:theme");
   if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
-} catch (e) {}
+} catch { /* Storage can be disabled; use the OS theme. */ }
 (function () {
   var system = window.matchMedia("(prefers-color-scheme: dark)");
   function updateChrome() {

@@ -4,6 +4,7 @@ import asyncio
 import html
 import logging
 import os
+import re
 from collections.abc import Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -244,14 +245,20 @@ class SpaStaticFiles(StaticFiles):
 
     async def get_response(self, path: str, scope):
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             # Not the app: a real 404 from the API namespace, or a path that names a file (has an extension).
             # StaticFiles hands over an OS path (api\v1\... on Windows), so compare with forward slashes.
             route = path.replace("\\", "/")
             if exc.status_code != 404 or route.startswith("api/") or "." in route.rsplit("/", 1)[-1]:
                 raise
-            return await super().get_response("index.html", scope)
+            response = await super().get_response("index.html", scope)
+        route = path.replace("\\", "/")
+        fingerprinted = re.fullmatch(r"assets/.+-[\w-]{8,}\.(js|css|woff2?)", route)
+        # Public Vite fingerprints are immutable; HTML, SW and install metadata
+        # must revalidate so a returning installed app can discover deployments.
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if fingerprinted else "no-cache"
+        return response
 
 
 def create_app(settings: Settings | None = None, services: Services | None = None) -> FastAPI:

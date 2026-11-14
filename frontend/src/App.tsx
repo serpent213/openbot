@@ -16,6 +16,7 @@ import SettingsPage from "./pages/SettingsPage";
 import ScheduledPage from "./pages/ScheduledPage";
 import { pluginPages } from "./plugins/registry";
 import DocumentTitle from "./components/DocumentTitle";
+import PwaUpdates from "./components/PwaUpdates";
 import { Spinner } from "./components/ui";
 
 // Internal 3D character lab: lazy so three.js stays out of the main bundle, and outside the
@@ -27,6 +28,7 @@ export default function App() {
   return (
     <>
     <DocumentTitle />
+    <PwaUpdates />
     <Routes>
       <Route path="/lab/openlings" element={
         <Suspense fallback={<div className="flex h-dvh items-center justify-center"><Spinner /></div>}><OpenlingsLabPage /></Suspense>

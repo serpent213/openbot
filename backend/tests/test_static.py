@@ -48,3 +48,17 @@ async def test_spa_fallback_leaves_api_paths_alone_with_windows_separators(tmp_p
             await files.get_response(path, scope)
         assert exc.value.status_code == 404, path
     assert (await files.get_response(r"threads\abc", scope)).status_code == 200
+
+
+async def test_pwa_static_cache_boundaries(tmp_path):
+    (tmp_path / "assets").mkdir()
+    for name in ("index.html", "sw.js", "manifest.webmanifest", "theme-init.js", "assets/app.js", "assets/app-AbCd1234.js"):
+        (tmp_path / name).write_text("test")
+    files = SpaStaticFiles(directory=str(tmp_path), html=True)
+    scope = {"type": "http", "method": "GET", "path": "/", "headers": []}
+    for name in ("index.html", "sw.js", "manifest.webmanifest", "theme-init.js", "assets/app.js", "threads/t1"):
+        assert (await files.get_response(name, scope)).headers["cache-control"] == "no-cache"
+    response = await files.get_response("assets/app-AbCd1234.js", scope)
+    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+    scope["headers"] = [(b"if-none-match", response.headers["etag"].encode())]
+    assert (await files.get_response("assets/app-AbCd1234.js", scope)).status_code == 304
