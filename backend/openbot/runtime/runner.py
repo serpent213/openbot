@@ -875,8 +875,9 @@ class Runner:
         p = bot.bot
         if sandbox_id:
             from openbot.sandboxes.runtime import tools as sandbox_tools
-            # Scheduling and memory are trusted, scoped orchestration, not worker I/O.
-            tools = [*sandbox_tools([n for n in p.tool_names if n not in {t.name for t in SCHEDULING_TOOLS}]),
+            # Core I/O goes to the worker; installed Python plugins and management
+            # tools remain trusted controller code, with the bot's existing grants.
+            tools = [*sandbox_tools([n for n in p.tool_names if n not in {t.name for t in SCHEDULING_TOOLS}], self.s.registry),
                      *CORE_TOOLS, *SCHEDULING_TOOLS,
                      *memory.memory_tools(bot.id, self.s.store,
                          namespace=memory_namespace or memory.sandbox_namespace(bot.id, sandbox_id))]
@@ -1120,7 +1121,7 @@ class Runner:
         try:
             if thread.sandbox_id:
                 from openbot.sandboxes.runtime import validate_bot
-                validate_bot(bot, self.s.settings)
+                validate_bot(bot, self.s.settings, self.s.registry)
             system_prompt, inputs, hop = await self._prepare(bot, thread, run)
             workspace_root = (Path("/workspace") if thread.sandbox_id else thread_workspace_root(
                 self.s.settings.workspace_root, thread.working_directory

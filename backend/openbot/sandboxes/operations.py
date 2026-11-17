@@ -52,6 +52,18 @@ async def perform(root: Path, payload: dict, env: dict, emit):
                          tool_output_cap=payload.get("tool_output_cap", 8000),
                          shell_output_cap=payload.get("shell_output_cap", 4000),
                          shell_login=False, skill_names=payload.get("skill_names", []))
+    if name == "execute_process":
+        from openbot.runtime.processes import ProcessRequest, run_process
+        try:
+            request = ProcessRequest.model_validate(args)
+            workdir = resolve_in_workspace(cwd, directory(request.cwd))
+        except (ValidationError, ValueError, OSError) as exc:
+            raise SandboxRejected(str(exc)) from exc
+        await emit("operation_started", None)
+        try:
+            return asdict(await run_process(request, cwd=str(workdir), env=env))
+        except OSError as exc:
+            return {"process_error": str(exc)}
     if name == "probe":
         return {"cwd": str(cwd)}
     if name == "prepare":

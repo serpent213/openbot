@@ -1,4 +1,4 @@
-# Plugin API 1.1
+# Plugin API 1.4
 
 Plugins are trusted, operator-installed Python packages. Core has no dependency on
 particular plugins. Install packages in the backend environment, then configure:
@@ -13,6 +13,64 @@ Restart the backend after changing these settings. Configuration is server-side;
 plugins declare typed settings rendered by the host (see below). Assign plugin tools and
 optional approval flags in the normal bot editor. Disabling a plugin removes its
 routes/tools at the next restart, but keeps its data and migration history.
+
+## Trust and sandbox-aware execution (API 1.4)
+
+A sandbox-bound thread does **not** sandbox installed Python plugins. The admin
+installs trusted code and selects its tools/approvals per bot; authors own their
+filesystem, database, network and credential behaviour. No additional resource-grant
+matrix is imposed by core. Chief's bot-management tools follow the same trust model.
+Core shell/file/HTTP tools remain worker-routed and cannot be replaced by a registry
+entry of the same name. Unclassified server MCP tools remain refused in sandbox runs.
+
+For an agent tool's external command, use the public helper:
+
+```python
+from openbot.plugin_api import execute_process, Plugin
+
+# Inside a tool receiving the injected runtime:
+result = await execute_process(
+    runtime, ["my-program", "--format", "json"],
+    stdin="request text", env={"APPLICATION_OPTION": "explicit-value"},
+    cwd="subdirectory", timeout=60, output_limit=1_000_000,
+)
+if result.timed_out or result.stdout_truncated or result.stderr_truncated:
+    raise RuntimeError("Incomplete result; inspect state before retrying")
+if result.returncode:
+    raise RuntimeError("Command failed")
+# Parse result.stdout only after checking those fields.
+plugin = Plugin(id="example", api_version=(1, 4))
+```
+
+The helper validates the active run/thread/bot identity. Sandbox runs use their
+existing worker lease; legacy non-sandbox runs use the controller account, as trusted
+plugin subprocesses did before. Explicit Host runs also obey Host policy. It never
+falls back on worker/configuration/transport failure. The legacy `SHELL_USER` setting
+belongs to the built-in `run_shell` tool, not this plugin API.
+
+Arguments are an argv list, not shell syntax. For an intentional shell command,
+pass `["bash", "-c", script]` explicitly. `cwd` is workspace-relative; executable
+names resolve on the execution target, not on the controller first. Programs and
+paths must exist on that target. A controller plugin state directory is NOT mounted
+or copied automatically. Prepare deliberate sharing or transport data explicitly.
+
+The final command gets a small Host baseline or the worker environment plus sandbox
+credential grants, then the explicit `env` overlay. No controller secret environment
+is inherited wholesale. Env overrides apply to the final command only, never worker
+bootstrap. Authors are responsible for deliberately forwarded secrets and for not
+including them in returned output/logs. Stdin is UTF-8 text (max 1,000,000 characters);
+stdout/stderr are UTF-8 with replacement, each independently capped in bytes (default
+1,000,000, max 2,000,000). The helper drains excess output without accumulating it.
+Timeouts (default 120s, max 86400s) return `timed_out`; nonzero exits are results.
+Start failures raise `ProcessExecutionError`; cancellation and sandbox transport
+errors propagate. There are no retries or automatic background-send queues.
+Worker cgroups provide descendant cleanup; Host cleanup uses the existing process-group/Windows-job mechanism and is not a containment guarantee against escaping code.
+
+The helper is for active agent tool runtimes, not lifecycle tasks or UI callbacks.
+Trusted background integrations can retain their own explicit controller operations.
+Update workers before using the new `execute_process` operation; older RPC-v3
+workers reject it as unsupported. The RPC framing/version is unchanged. Native CLI
+agents still use their own tools: this API does not inject Openbot plugins into them.
 
 ## Backend contract
 
@@ -50,7 +108,7 @@ route prefixes are reserved. API routers mount beneath
 `ToolRuntime[ToolContext]`, rather than accepting actor identity from the model.
 
 Use `tool_context(runtime)` for a small immutable identity view (actor ID/handle,
-thread ID, run ID). Core's `RunContext` and `Services` are not plugin contracts.
+thread ID, run ID, and optional sandbox ID). Core's `RunContext` and `Services` are not plugin contracts.
 
 `PluginHost` supplies the async SQLAlchemy session factory, explicit `engine`,
 `dialect`, `database_name`, private

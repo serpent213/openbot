@@ -20,7 +20,9 @@ No additional Python dependencies, broker, root helper or automatic deployment.
 | Scheduling | Current-thread creation; scheduled-message listing limited to the bot in this sandbox |
 | Bot roster / instructions / installed server plugins / operator UI | Trusted shared configuration, not a multi-tenant UI authorization boundary |
 | Worker CLI user extensions/MCP | Governed by the selected CLI adapter/permission mode; execute inside its worker operation, not as server plugins |
-| Unadapted server plugin/MCP tools, bot creation/profile mutation, hosted web tools | Explicitly refused; never silently executed on the server |
+| Bot management / installed Python plugin tools | Trusted controller operations, selected and approval-gated through existing bot configuration; not isolated plugins |
+| Plugin `execute_process` helper | Active-run target routing; argv/stdin/env, bounded output, timeout/cancellation; no Host fallback |
+| Server MCP tools / hosted web tools | Still explicitly refused; no implicit controller-side execution |
 | Operator GUI | URL-backed Settings sections; inventory/name/status, memory sharing, sandbox-only named credential attachments, and confirmed generic home clearing; thread selection/browsing retains immutable bindings |
 | Public sandbox backend registration / Podman / recycling | Deferred |
 
@@ -214,8 +216,8 @@ Settings now has linkable sections at `/settings/{general,providers,sandboxes,
 credentials,tools,plugins,integrations,access}`. `/settings` still opens General.
 Navigation is a secondary menu, with a select control on narrow screens. Existing
 per-bot tool selection, approvals, plugin credentials and legacy Host behavior are
-unchanged. Sandbox compatibility checks still refuse unadapted plugin/MCP tools;
-native CLI tools are separate. No new bot/thread secret permission matrix is added.
+unchanged. Installed Python plugins and management tools are trusted controller code;
+server MCP/hosted web tools remain refused. Native CLI tools are separate. No new bot/thread secret permission matrix is added.
 
 ### Named sandbox credentials
 
@@ -444,11 +446,14 @@ Sandbox worker UID
 private home / checkout / permitted network services
 ```
 
-The loop interprets model responses and never evaluates model-supplied code in the
-server. Every path to executable code or host access goes through the worker or an
-explicitly scoped trusted tool, which is why subprocesses, file access, output
-spilling, directory browsing, MCP and plugin tools are all routed or refused, not just
-`run_shell`. Running the whole loop as the sandbox UID would need narrow, per-run
+Core's built-in filesystem, process, HTTP, output spilling and directory browsing
+paths go through the worker. Installed Python plugins remain trusted controller
+code: their direct filesystem/network/subprocess calls are NOT intercepted. Authors
+use `plugin_api.execute_process` for execution in the calling run's environment;
+they remain responsible for their database access, credentials and other effects.
+The admin grants tools through existing bot configuration. There is no additional
+plugin capability matrix. Server MCP tools remain refused pending an explicit
+execution-target design. Running the whole loop as the sandbox UID would need narrow, per-run
 authenticated model, persistence and memory APIs; copying the server configuration
 there would hand model keys, the database and encryption keys to that sandbox's shell.
 
@@ -505,9 +510,11 @@ command strings or generated NixOS activation.
 
 ### Secrets, network and plugins
 
-- Subprocess environments are allowlists. Server API keys, model credentials, the
-  database and encryption keys never reach worker homes, environments, inherited
-  descriptors or visible process state.
+- Core worker bootstrap environments are allowlists: controller secrets are not
+  implicitly inherited. The plugin process helper also uses a minimal Host baseline;
+  explicit plugin-provided env applies only to the final command, after worker
+  isolation. A trusted plugin can deliberately pass credentials and is responsible
+  for that choice. Sandbox credential attachments remain separately administered.
 - Worker sockets authenticate the controller; a worker cannot impersonate it or
   reach another sandbox. Worker output is untrusted data, never control-plane input.
 - Built-in HTTP runs under the sandbox UID so user-based firewall rules apply.
@@ -516,18 +523,21 @@ command strings or generated NixOS activation.
 - Delegation inherits the current binding and can never select a more privileged
   sandbox or Host through model-controlled arguments. Cross-sandbox messages share
   information; the receiver's permissions are unchanged.
-- Server plugins run with server privileges. Each tool must be classified as
-  worker-executed or explicitly scoped host work; unadapted tools stay unavailable in
-  sandbox mode. Per-agent SQL spaces are not an OS boundary: on PostgreSQL the SQL
-  plugin enters restricted roles with `SET ROLE` on the server's own login. An adapted
-  version should connect from the worker with peer authentication, one login role per
-  pool account, so the database itself enforces the boundary.
+- Server plugins run with server privileges in both sandbox and legacy modes.
+  Kanban/SQL can retain their existing server database operations and plugin access
+  rules. Actor-private SQL spaces are not automatically sandbox-private, and DB
+  role restrictions are not OS isolation. Bot management likewise remains an
+  explicitly selected controller capability, not authority inferred from thread
+  leadership. A plugin calling subprocess directly still executes on the controller.
+  See `plugins.md` for the optional sandbox-aware process helper (API 1.4).
 - A sandbox change starts a new thread; private state and CLI sessions never cross it.
 
 ## Open work
 
-- Audited worker adapters for server plugins and MCP tools (kanban, SQL); until then
-  bots with those tools cannot run in sandboxed threads.
+- Isolated/untrusted plugins and sandbox-hosted MCP servers (distinct from trusted
+  in-process plugins); server MCP tools remain blocked for sandbox-bound runs.
+- Openbot tool bridges for native CLIs: allowing a Python plugin does not inject
+  its tools into Pi/Codex/Claude.
 - Per-sandbox network grants; today one site policy applies to every worker.
 - Login identities that survive slot recycling, and a shared OAuth/refresh broker.
 - Deployment reconciliation, recycling and safe pool shrink.

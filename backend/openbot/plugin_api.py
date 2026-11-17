@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from openbot.runtime.commands import Command
     from openbot.runtime.plugin_settings import SettingsStore
 
-API_VERSION = (1, 3)
+API_VERSION = (1, 4)
 
 __all__ = [
     "API_VERSION",
@@ -43,6 +43,8 @@ __all__ = [
     "Plugin",
     "PluginHost",
     "PluginSettings",
+    "ProcessExecutionError",
+    "ProcessResult",
     "StreamParser",
     "TimestampMixin",
     "ToolContext",
@@ -50,6 +52,7 @@ __all__ = [
     "TurnResult",
     "UTCDateTime",
     "UnknownSession",
+    "execute_process",
     "find_actor",
     "host_from_request",
     "host_from_runtime",
@@ -84,11 +87,12 @@ class ToolContext:
     actor_handle: str
     thread_id: str
     run_id: str
+    sandbox_id: str | None = None
 
 
 def tool_context(runtime) -> ToolContext:
     ctx = runtime.context
-    return ToolContext(ctx.actor_id, ctx.actor_handle, ctx.thread_id, ctx.run_id)
+    return ToolContext(ctx.actor_id, ctx.actor_handle, ctx.thread_id, ctx.run_id, getattr(ctx, "sandbox_id", None))
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -197,3 +201,5 @@ from openbot.runtime.cli_agents.base import (
     UnknownSession,
 )
 from openbot.runtime.commands import Command, CommandContext, CommandResult
+from openbot.runtime.plugin_execution import execute_process
+from openbot.runtime.processes import ProcessExecutionError, ProcessResult

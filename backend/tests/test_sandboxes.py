@@ -206,7 +206,8 @@ async def test_internal_loop_crosses_worker_without_host_io_or_global_memory(set
 
 @pytest.mark.parametrize("changes", [
     {"tool_names": ["mcp__tool"]},
-    {"tool_names": ["sql_query"]}, {"tool_names": ["create_bot"]},
+    {"tool_names": ["sql_query"]},  # not installed in this registry
+
     {"provider": "pi"}, {"provider": "codex"}, {"model_settings": {"web_search": True}},
 ])
 def test_unsupported_paths_fail_closed(changes):

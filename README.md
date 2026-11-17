@@ -392,7 +392,9 @@ An opt-in Linux prototype adds persistent sandbox/thread bindings and authentica
 local workers for built-in shell, file and HTTP tools and streamed coding-CLI
 adapters, including installed Pi. Parallel operations have separate cleanup groups;
 memory and scratchpads are sandbox-scoped, with explicit operator opt-in to global
-memory. Unadapted server plugin/MCP paths remain fail-closed. Legacy single-account
+memory. Installed Python plugins and selected bot-management tools remain trusted
+controller operations; authors can use `plugin_api.execute_process` for sandbox-aware
+commands. Direct plugin I/O is not intercepted. Server MCP paths remain fail-closed. Legacy single-account
 mode remains the default.
 This is **not completed isolation**: deployment-specific filesystem/network policy
 and a distinct-UID pilot are still required. See [capabilities, operator API and

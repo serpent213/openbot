@@ -21,7 +21,7 @@ from openbot.sandboxes.protocol import (
 )
 
 ENV_NAMES = ("PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "NIX_SSL_CERT_FILE")
-OPERATIONS = {"probe", "prepare", "browse", "skills", "cli_probe", "cli_turn", "provision"}
+OPERATIONS = {"probe", "prepare", "browse", "skills", "cli_probe", "cli_turn", "provision", "execute_process"}
 
 
 def environment(home: str) -> dict[str, str]:
@@ -122,9 +122,9 @@ class Worker:
                     if packet.get("kind") == "operation_started":
                         # The tool owns its requested timeout. This watchdog only
                         # handles an escaped descendant keeping its cleanup pipes open.
-                        if name == "run_shell":
+                        if name in ("run_shell", "execute_process"):
                             seconds = max(0, float(payload.get("args", {}).get("timeout", 120)))
-                            deadline = asyncio.create_task(asyncio.sleep(seconds + 5))
+                            deadline = asyncio.create_task(asyncio.sleep(seconds + (15 if name == "execute_process" else 5)))
                         elif name == "cli_turn":
                             from openbot.runtime.cli_agents.base import (
                                 KILL_GRACE,

@@ -26,11 +26,15 @@ def resource(settings, name):
     return slot
 
 
-def validate_bot(bot, settings=None):
+def validate_bot(bot, settings=None, registry=None):
     from openbot.runtime.cli_agents import adapter_for
-    from openbot.tools.builtin.scratchpad import scratchpad
-    from openbot.tools.builtin.todo import todo_write
-    allowed = {*WORKER_TOOLS, scratchpad.name, todo_write.name, "schedule_message", "list_scheduled_messages"}
+    from openbot.tools.builtin import SELECTABLE_TOOLS
+    allowed = {t.name for t in SELECTABLE_TOOLS} | {"schedule_message", "list_scheduled_messages"}
+    # Installed Python tools are trusted controller code, not sandboxed plugins.
+    # MCP has a separate execution lifecycle; do not silently expose host servers.
+    if registry is not None:
+        allowed.update(spec.name for spec in registry.specs() if not spec.source.startswith("mcp:"))
+        allowed.difference_update(spec.name for spec in registry.specs() if spec.source.startswith("mcp:"))
     unknown = set(bot.bot.tool_names or ()) - allowed
     if unknown:
         raise SandboxRejected("tools unavailable in sandbox: " + ", ".join(sorted(unknown)))
@@ -81,7 +85,7 @@ async def binding(services, run, thread, bot=None, *, wait=True):
     if run.sandbox_id != thread.sandbox_id:
         raise SandboxRejected("run sandbox does not match immutable thread binding")
     if bot is not None:
-        validate_bot(bot, services.settings)
+        validate_bot(bot, services.settings, services.registry)
     claimed = False
     try:
         while not claimed:
@@ -182,7 +186,7 @@ async def inspect(services, sandbox_id, operation, args, directory=None):
         return await execute(services, box.id, run.id, operation, args, directory)
 
 
-def tools(names):
+def tools(names, registry=None):
     from openbot.tools.builtin.scheduling import SCHEDULING_TOOLS
     from openbot.tools.builtin.scratchpad import scratchpad
     from openbot.tools.builtin.todo import todo_write
@@ -191,6 +195,11 @@ def tools(names):
     for name in names:
         if name in host_tools:
             result.append(host_tools[name])
+            continue
+        if name not in WORKER_TOOLS:
+            if registry is None or not registry.has(name) or (registry.source(name) or "").startswith("mcp:"):
+                raise SandboxRejected(f"tool unavailable in sandbox: {name}")
+            result.append(registry.get(name))
             continue
         original = WORKER_TOOLS[name]
 
