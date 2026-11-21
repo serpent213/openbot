@@ -277,12 +277,96 @@ def test_cli_reports_unreachable_server_without_traceback():
     assert "Traceback" not in result.output
 
 
+def test_cli_api_get_prefixes_v1_and_sends_actor():
+    seen = {}
+
+    def handler(req):
+        seen["path"] = req.url.path
+        seen["actor"] = req.headers.get("X-OpenBot-Actor")
+        return _json_response([{"id": "b1", "name": "Board"}])
+
+    c = _client(handler)
+    c.actor = "you"
+    result = _runner_with_client(c)(["api", "kanban/boards"])
+    assert result.exit_code == 0, result.output
+    assert seen == {"path": "/api/v1/kanban/boards", "actor": "you"}
+    assert json.loads(result.output) == [{"id": "b1", "name": "Board"}]
+
+
+def test_cli_api_fields_become_body_or_query():
+    seen = []
+
+    def handler(req):
+        seen.append((req.method, req.url.path, dict(req.url.params), req.content))
+        return _json_response({"ok": True})
+
+    invoke = _runner_with_client(_client(handler))
+    r1 = invoke(["api", "-X", "PATCH", "/api/v1/kanban/boards/cards/c1",
+                 "-F", "expected_version=3", "-f", "status=done", "-F", "thread_id=null"])
+    r2 = invoke(["api", "-X", "GET", "/runs", "-f", "limit=1"])
+    r3 = invoke(["api", "/kanban/boards", "-d", '{"name": "B"}'])
+    assert (r1.exit_code, r2.exit_code, r3.exit_code) == (0, 0, 0)
+    assert seen[0][:2] == ("PATCH", "/api/v1/kanban/boards/cards/c1")
+    assert json.loads(seen[0][3]) == {"expected_version": 3, "status": "done", "thread_id": None}
+    assert seen[1][:3] == ("GET", "/api/v1/runs", {"limit": "1"})
+    assert seen[2][0] == "POST" and json.loads(seen[2][3]) == {"name": "B"}
+
+
+def test_cli_api_reads_body_from_stdin():
+    seen = {}
+
+    def handler(req):
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(204)
+
+    result = _runner_with_client(_client(handler))(
+        ["api", "-X", "PUT", "/x", "-d", "@-"], input='{"a": [1, 2]}'
+    )
+    assert result.exit_code == 0, result.output
+    assert seen["body"] == {"a": [1, 2]}
+    assert result.output == ""
+
+
+def test_cli_api_error_prints_body_and_fails():
+    c = _client(lambda req: _json_response({"detail": "card not found"}, status=404))
+    result = _runner_with_client(c)(["api", "/kanban/boards/cards/nope"])
+    assert result.exit_code == 1
+    assert "card not found" in result.output
+    assert "GET /api/v1/kanban/boards/cards/nope -> 404" in result.output
+
+
+def test_cli_api_rejects_fields_with_data():
+    result = _runner_with_client(_client(lambda req: _json_response({})))(
+        ["api", "/x", "-f", "a=b", "-d", "{}"]
+    )
+    assert result.exit_code == 2
+    assert "either fields" in result.output
+
+
+def test_cli_connect_stores_actor(tmp_path, monkeypatch):
+    cfg = tmp_path / "cfg.json"
+
+    class _FakeClient:
+        def __init__(self, base_url, api_key=None, **_):
+            pass
+
+        def ping(self):
+            return {"status": "ok"}
+
+    monkeypatch.setattr(cli_mod, "OpenBotClient", _FakeClient)
+    result = CliRunner().invoke(
+        cli_mod.cli, ["connect", "https://x.test", "--as", "@steffen", "--config", str(cfg)]
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(cfg.read_text())["actor"] == "steffen"
+
+
 def test_cli_connect_saves_and_pings(tmp_path, monkeypatch):
     cfg = tmp_path / "cfg.json"
     captured = {}
 
     class _FakeClient:
-        def __init__(self, base_url, api_key=None):
+        def __init__(self, base_url, api_key=None, **_):
             captured["base_url"] = base_url
             captured["api_key"] = api_key
 
@@ -308,7 +392,7 @@ def test_cli_connect_warns_when_server_unreachable(tmp_path, monkeypatch):
     cfg = tmp_path / "cfg.json"
 
     class _FakeClient:
-        def __init__(self, base_url, api_key=None):
+        def __init__(self, base_url, api_key=None, **_):
             pass
 
         def ping(self):

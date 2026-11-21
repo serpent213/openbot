@@ -38,8 +38,10 @@ The config is stored at `~/.config/openbot-cli/config.json`.
 | `openbot bots` | List bots (handle, name, active/disabled state, description). |
 | `openbot runs [<thread>]` | List runs; pass a `<thread>` id to scope to one thread. |
 | `openbot run <id>` | Show one run and its event log (useful for streaming deltas). |
+| `openbot api [-X METHOD] <path> [-f/-F key=value] [-d JSON\|@file\|@-]` | Send any request to the server API and print the JSON response. |
 
-Every command accepts `--json` to emit the raw API payload.
+Every command except `api` accepts `--json` to emit the raw API payload; `api`
+always prints the response as it comes.
 
 ## Examples
 
@@ -72,12 +74,35 @@ and prints, as they arrive:
 
 Press `Ctrl+C` to disconnect.
 
+## Raw API access
+
+`openbot api` works like `gh api`. `PATH` is relative to `/api/v1` unless it
+starts with `/api/`, which reaches everything the server exposes, plugin routes
+included:
+
+```bash
+openbot api /kanban/boards
+openbot api -X GET /runs -f limit=5
+openbot api -X PATCH /kanban/boards/cards/<id> -F expected_version=3 -f status=done
+echo '{"name": "Ops"}' | openbot api /kanban/boards -d @-
+```
+
+`-f` adds a string field and `-F` a typed one (numbers, `true`/`false`/`null`,
+JSON). Fields form the JSON body and make the default method POST; with
+`-X GET` they become query parameters. `-H 'Name: value'` adds a header and
+`-i` prints the status line. Error responses go to stderr with exit code 1.
+
 ## Authentication
 
 If the server requires an API key (`OPENBOT_API_KEY` setting), pass it via
 `--api-key`, the `OPENBOT_API_KEY` env var, or `openbot connect --api-key`.
 The `/health` probe used by `connect` is unauthenticated, so a connection test
 works even before a key is configured.
+
+Every request also carries `X-OpenBot-Actor`, the operator handle the server
+records for plugin changes (kanban cards) and scheduled messages. Like the web UI
+it defaults to `you`; set another with `--as`, `OPENBOT_ACTOR` or
+`openbot connect --as <handle>`. It is an audit field, not authentication.
 
 ## Testing
 

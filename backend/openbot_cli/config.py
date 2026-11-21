@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
+# The web UI's default operator handle, sent as X-OpenBot-Actor.
+DEFAULT_ACTOR = "you"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "openbot-cli"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
@@ -44,3 +46,8 @@ def resolve(base_url: str | None, api_key: str | None, path: Path | None = None)
     """Merge explicit flags over stored config; returns (base_url, api_key)."""
     cfg = load_config(path)
     return (base_url or cfg["base_url"]), (api_key or cfg.get("api_key"))
+
+
+def resolve_actor(actor: str | None, path: Path | None = None) -> str:
+    """The operator handle: explicit flag, then stored config, then the web UI default."""
+    return actor or load_config(path).get("actor") or DEFAULT_ACTOR

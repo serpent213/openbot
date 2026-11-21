@@ -36,11 +36,15 @@ class OpenBotClient:
         base_url: str = DEFAULT_BASE_URL,
         api_key: str | None = None,
         *,
+        actor: str | None = None,
         client: httpx.Client | None = None,
         timeout: float = 30.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
+        # Recorded by the server as the operator of plugin and scheduled-message
+        # changes (X-OpenBot-Actor); an audit field, not authentication.
+        self.actor = actor
         if client is not None:
             self._client = client
             return
@@ -53,11 +57,17 @@ class OpenBotClient:
 
     # -- low level ---------------------------------------------------------
 
-    def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+    def request_raw(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        """Send one request and return the response whatever its status."""
+        if self.actor:
+            kwargs["headers"] = {"X-OpenBot-Actor": self.actor, **(kwargs.get("headers") or {})}
         try:
-            resp = self._client.request(method, path, **kwargs)
+            return self._client.request(method, path, **kwargs)
         except httpx.TransportError as exc:
             raise OpenBotClientError(f"cannot reach {self.base_url}: {exc}") from exc
+
+    def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        resp = self.request_raw(method, path, **kwargs)
         if resp.status_code >= 400:
             raise OpenBotClientError(
                 f"{method} {path} -> {resp.status_code}: {resp.text[:300]}"

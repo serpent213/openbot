@@ -9,6 +9,7 @@ Commands mirror the core web-UI flows against a running OpenBot server:
     openbot bots                           List bots
     openbot runs [<thread>]                List runs (optionally for one thread)
     openbot run <id>                       Show one run and its event log
+    openbot api [-X METHOD] <path> [-F k=v] Send any request to the server API
 
 This is a frontend only — every command calls the existing ``/api/v1`` REST and
 SSE endpoints. See README.md in this package for a full usage guide.
@@ -30,6 +31,7 @@ from openbot_cli.config import (
     ConfigError,
     load_config,
     resolve,
+    resolve_actor,
     save_config,
 )
 from openbot_cli.formatting import (
@@ -41,8 +43,8 @@ from openbot_cli.formatting import (
 )
 
 
-def _make_client(base_url: str, api_key: str | None) -> OpenBotClient:
-    return OpenBotClient(base_url=base_url, api_key=api_key)
+def _make_client(base_url: str, api_key: str | None, actor: str | None = None) -> OpenBotClient:
+    return OpenBotClient(base_url=base_url, api_key=api_key, actor=actor)
 
 
 class _ClientErrorGroup(click.Group):
@@ -80,8 +82,10 @@ def _resolve_thread_id(client: OpenBotClient, value: str) -> str:
 @click.group(cls=_ClientErrorGroup)
 @click.option("--base-url", envvar="OPENBOT_URL", default=None, help="OpenBot base URL (env: OPENBOT_URL).")
 @click.option("--api-key", envvar="OPENBOT_API_KEY", default=None, help="API key (env: OPENBOT_API_KEY).")
+@click.option("--as", "actor", envvar="OPENBOT_ACTOR", default=None,
+              help="Operator handle recorded for changes (env: OPENBOT_ACTOR; default: you).")
 @click.pass_context
-def cli(ctx: click.Context, base_url: str | None, api_key: str | None) -> None:
+def cli(ctx: click.Context, base_url: str | None, api_key: str | None, actor: str | None) -> None:
     """OpenBot terminal client — talk to your bots and threads from the shell."""
     ctx.ensure_object(dict)
     # If a client was injected (tests, embedding, DI), use it as-is and skip the
@@ -90,18 +94,20 @@ def cli(ctx: click.Context, base_url: str | None, api_key: str | None) -> None:
         return
     try:
         url, key = resolve(base_url, api_key)
+        actor = resolve_actor(actor)
     except ConfigError as e:
         raise click.ClickException(str(e)) from e
     ctx.obj["base_url"] = url
     ctx.obj["api_key"] = key
-    ctx.obj["client"] = _make_client(url, key)
+    ctx.obj["client"] = _make_client(url, key, actor)
 
 
 @cli.command("connect")
 @click.argument("url", required=False)
 @click.option("--api-key", default=None, help="API key to store alongside the URL.")
+@click.option("--as", "actor", default=None, help="Operator handle to store (default: you).")
 @click.option("--config", "config_path", default=None, type=click.Path(), help="Config file (advanced).")
-def connect(url: str | None, api_key: str | None, config_path: str | None) -> None:
+def connect(url: str | None, api_key: str | None, actor: str | None, config_path: str | None) -> None:
     """Save the OpenBot server URL (and optional API key) and verify it responds.
 
     Persists the connection to the config file, then probes the server's public
@@ -114,6 +120,8 @@ def connect(url: str | None, api_key: str | None, config_path: str | None) -> No
         data["base_url"] = url.rstrip("/")
     if api_key:
         data["api_key"] = api_key
+    if actor:
+        data["actor"] = actor.lstrip("@")
     saved = save_config(data, path)
     click.echo(f"Saved connection to {data['base_url']} ({saved})")
     probe = OpenBotClient(base_url=data["base_url"], api_key=data.get("api_key"))
@@ -250,6 +258,100 @@ def run(ctx: click.Context, run_id: str, as_json: bool) -> None:
         click.echo(json.dumps(detail, indent=2, default=str))
         return
     click.echo(format_run_detail(detail))
+
+
+def _api_path(path: str) -> str:
+    """Make PATH absolute; paths outside /api/ and /openapi.json are under /api/v1."""
+    path = "/" + path.lstrip("/")
+    if path.startswith("/api/") or path.split("?", 1)[0] == "/openapi.json":
+        return path
+    return "/api/v1" + path
+
+
+def _typed(value: str):
+    """-F values: JSON literals (numbers, true/false/null, arrays, objects), else a string."""
+    try:
+        return json.loads(value)
+    except ValueError:
+        return value
+
+
+def _fields(raw: tuple[str, ...], typed: tuple[str, ...]) -> dict:
+    out: dict = {}
+    for items, convert in ((raw, str), (typed, _typed)):
+        for item in items:
+            key, sep, value = item.partition("=")
+            if not sep or not key:
+                raise click.UsageError(f"field {item!r} is not key=value")
+            out[key] = convert(value)
+    return out
+
+
+def _read_data(value: str):
+    if value == "@-":
+        text = sys.stdin.read()
+    elif value.startswith("@"):
+        text = Path(value[1:]).read_text()
+    else:
+        text = value
+    try:
+        return json.loads(text)
+    except ValueError as exc:
+        raise click.UsageError(f"--data is not valid JSON: {exc}") from exc
+
+
+@cli.command("api")
+@click.argument("path")
+@click.option("-X", "--method", default=None, help="HTTP method (default: GET, or POST with fields/data).")
+@click.option("-f", "--raw-field", "raw_fields", multiple=True, metavar="KEY=VALUE",
+              help="String field (repeatable). Sent as the JSON body; as query parameters with -X GET.")
+@click.option("-F", "--field", "typed_fields", multiple=True, metavar="KEY=VALUE",
+              help="Like -f, but numbers, true/false/null and JSON are parsed.")
+@click.option("-d", "--data", default=None, metavar="JSON|@FILE|@-", help="JSON request body.")
+@click.option("-H", "--header", "headers", multiple=True, metavar="NAME:VALUE", help="Extra header (repeatable).")
+@click.option("-i", "--include", is_flag=True, help="Print the status line first.")
+@click.pass_context
+def api(ctx: click.Context, path: str, method: str | None, raw_fields: tuple[str, ...],
+        typed_fields: tuple[str, ...], data: str | None, headers: tuple[str, ...], include: bool) -> None:
+    """Send a request to the server API and print the response.
+
+    PATH is relative to /api/v1 unless it starts with /api/, e.g.
+    `openbot api /kanban/boards` or
+    `openbot api -X PATCH /kanban/boards/cards/ID -F expected_version=3 -f status=done`.
+    The API key and operator handle are sent as for every other command.
+    """
+    client: OpenBotClient = ctx.obj["client"]
+    fields = _fields(raw_fields, typed_fields)
+    if fields and data is not None:
+        raise click.UsageError("use either fields (-f/-F) or --data, not both")
+    method = (method or ("POST" if fields or data is not None else "GET")).upper()
+    extra: dict[str, str] = {}
+    for header in headers:
+        name, sep, value = header.partition(":")
+        if not sep or not name.strip():
+            raise click.UsageError(f"header {header!r} is not NAME:VALUE")
+        extra[name.strip()] = value.strip()
+    kwargs: dict = {"headers": extra}
+    if fields and method in ("GET", "HEAD", "DELETE"):
+        kwargs["params"] = fields
+    elif fields:
+        kwargs["json"] = fields
+    elif data is not None:
+        kwargs["json"] = _read_data(data)
+    resp = client.request_raw(method, _api_path(path), **kwargs)
+    failed = resp.status_code >= 400
+    if include:
+        click.echo(f"{resp.status_code} {resp.reason_phrase}", err=failed)
+    if resp.content:
+        try:
+            body = json.dumps(resp.json(), indent=2, ensure_ascii=False)
+        except ValueError:
+            body = resp.text
+        click.echo(body, err=failed)
+    if failed:
+        if not include:
+            click.echo(f"{method} {resp.request.url.path} -> {resp.status_code}", err=True)
+        ctx.exit(1)
 
 
 def main() -> int:
