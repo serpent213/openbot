@@ -218,6 +218,27 @@ class ScheduledMessage(TimestampMixin, Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     result_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Set when a recurring schedule created this occurrence; kept if the schedule is deleted.
+    recurring_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+class RecurringSchedule(TimestampMixin, Base):
+    """A cron rule that posts the same message repeatedly. Each firing becomes a
+    ScheduledMessage, so delivery, retries and the outcome history are shared."""
+    __tablename__ = "recurring_schedules"
+    __table_args__ = (Index("ix_recurring_status_due", "status", "next_due_at"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    thread_id: Mapped[str] = mapped_column(String(36), ForeignKey("threads.id", ondelete="CASCADE"), nullable=False)
+    sender_actor_id: Mapped[str] = mapped_column(String(36), ForeignKey("actors.id", ondelete="CASCADE"), nullable=False)
+    to_handles: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    cron: Mapped[str] = mapped_column(String(120), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active | paused
+    next_due_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # None while paused
+    last_fired_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)  # its latest ScheduledMessage
+    skipped: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # firings missed while down
 
 
 class ThreadTodoList(TimestampMixin, Base):

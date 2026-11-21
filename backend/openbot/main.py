@@ -323,7 +323,7 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     api = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
     core_routers = (actors.router, bots.router, threads.router, messages.router, inbox.router, runs.router, tools.router,
               providers.router, models_api.router, events.router, settings_api.router, mcp_api.router, setup_api.router,
-              workspace_api.router, activity_api.router, scheduled.router, plugin_settings_api.router, commands_api.router,
+              workspace_api.router, activity_api.router, scheduled.recurring_router, scheduled.router, plugin_settings_api.router, commands_api.router,
               sandboxes_api.router, sandbox_credentials_api.router)
     for r in core_routers:
         api.include_router(r)

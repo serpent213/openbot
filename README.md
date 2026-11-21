@@ -438,6 +438,25 @@ core tools every bot always has (`list_bots`, `ask_human`, `read_history`,
 list on each call; the list is saved per thread and bot, shown live above the composer in the
 thread view, and given back to the bot on its later runs in that thread. The seeded engineer has it.
 
+### Scheduled messages
+
+Every bot can schedule a one-time message in its thread (`schedule_message`, with
+`list_scheduled_messages` and `cancel_scheduled_message`). Recurring messages use a five-field cron
+rule (`0 9 * * 1-5` is weekdays at 09:00) with an IANA timezone; their tools (`schedule_recurring`,
+`list_recurring`, `pause_recurring`, `cancel_recurring`) are granted per bot in the bot editor.
+@cron posts every firing, so a scheduled message can wake the bots it names. People manage both
+kinds on the Scheduled page or through `/api/v1/scheduled` and `/api/v1/scheduled/recurring`, and
+see every bot's recurring schedules there; a bot sees only its own.
+
+- Bots: at most one firing per `RECURRING_MIN_INTERVAL_SECONDS` (900) and
+  `RECURRING_MAX_PER_BOT` (10) schedules. People have no such limits.
+- Missed firings (server down): the latest one is sent if it is less than
+  `RECURRING_GRACE_SECONDS` (3600) late; older ones are counted as missed. Resuming a paused
+  schedule starts from now.
+- Daylight saving time: a time that does not exist fires at the first minute after the jump; a
+  repeated hour fires once. Rules with `*` as the hour follow real time instead.
+- `DEFAULT_TIMEZONE` (UTC) applies when a schedule names no zone.
+
 `run_shell` runs `bash -lc`. On Windows, it and `patch_file` use the `bash.exe` and `patch.exe` of
 [Git for Windows](https://git-scm.com/download/win), found next to `git` on `PATH` or in its standard
 install locations. `System32\bash.exe`, the WSL launcher, is never used. Without Git for Windows both
@@ -825,7 +844,7 @@ The live provider smoke tests in `backend/tests/smoke/` are marked `smoke` and d
 
 ## Roadmap / out of scope for v1
 
-Accounts and login, multiple human actors, cron triggers, inbound event webhooks (as opposed to
+Accounts and login, multiple human actors, inbound event webhooks (as opposed to
 outbound delivery to external actors), Docker sandboxing for tools, chat platform adapters
 (Slack/Discord/etc.), and multi-node deployment. The actor system, the LangGraph store, and the
 tool registry are designed as the seams for adding these later.

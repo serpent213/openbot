@@ -1,7 +1,13 @@
 import type { Actor, AppSetting, Bot, BotCatalogEntry, DirectoryListing, McpCatalogEntry, McpConnectResult, McpServer, McpServerInput, BotInboxItem, BotInput, BotMemory, BotScratchpad, InboxItem, Message, ModelsOut, ProvidersOut, CliAgentStatus, PurgeResult, Run, RunDetail, SetupStatus, SkillInfo, Thread, ThreadDetail, ThreadUsage, ToolInfo, DatabaseLocation } from "./types";
 
 /** Outgoing attachment for postMessage: a data URL plus an optional display name. */
-export interface ScheduledMessage { id: string; thread_id: string; content: string; due_at: string; status: string; attempts: number; last_error?: string | null; result_message_id?: string | null; to_handles: string[]; }
+export interface ScheduledMessage { id: string; thread_id: string; content: string; due_at: string; status: string; attempts: number; last_error?: string | null; result_message_id?: string | null; to_handles: string[]; recurring_id?: string | null; }
+export interface RecurringSchedule {
+  id: string; thread_id: string; sender_actor_id: string; to_handles: string[]; content: string; cron: string; timezone: string;
+  status: "active" | "paused"; next_due_at: string | null; last_fired_at: string | null; last_message_id: string | null; skipped: number;
+  created_at: string; updated_at: string;
+}
+export interface RecurringInput { thread_id: string; content: string; cron: string; timezone?: string; to?: string[]; }
 
 export interface AttachmentIn { url: string; name?: string; }
 import { ApiError, backendAvailableEvent, backendUnavailableEvent, isBackendUnavailable } from "./errors";
@@ -105,6 +111,11 @@ export const Api = {
   listScheduled: () => api<ScheduledMessage[]>("/scheduled"),
   createScheduled: (body: { thread_id: string; content: string; due_at: string; to: string[] }) => api<ScheduledMessage>("/scheduled", { method: "POST", json: body }),
   cancelScheduled: (id: string) => api<ScheduledMessage>(`/scheduled/${id}/cancel`, { method: "POST" }),
+  listRecurring: () => api<RecurringSchedule[]>("/scheduled/recurring"),
+  previewRecurring: (cron: string, timezone: string) => api<{ cron: string; timezone: string; next: string[] }>(`/scheduled/recurring/preview?${new URLSearchParams({ cron, timezone, count: "3" })}`),
+  createRecurring: (body: RecurringInput) => api<RecurringSchedule>("/scheduled/recurring", { method: "POST", json: body }),
+  updateRecurring: (id: string, body: Partial<Omit<RecurringInput, "thread_id">> & { paused?: boolean }) => api<RecurringSchedule>(`/scheduled/recurring/${id}`, { method: "PATCH", json: body }),
+  deleteRecurring: (id: string) => api<void>(`/scheduled/recurring/${id}`, { method: "DELETE" }),
   getProviders: () => api<ProvidersOut>("/providers"),
   getCliAgent: (provider: string) => api<CliAgentStatus>(`/providers/cli/${encodeURIComponent(provider)}`),
   getModels: (provider: string) => api<ModelsOut>(`/models?provider=${encodeURIComponent(provider)}`),

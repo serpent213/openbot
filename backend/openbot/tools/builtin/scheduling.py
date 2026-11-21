@@ -60,4 +60,26 @@ async def list_scheduled_messages(runtime: ToolRuntime[RunContext]) -> str:
         return "\n".join(f"{j.id} {j.status} {j.due_at.isoformat()} {j.content[:80]}" for j in rows) or "(none)"
 
 
-SCHEDULING_TOOLS = [schedule_message, list_scheduled_messages]
+@tool
+async def cancel_scheduled_message(message_id: str, runtime: ToolRuntime[RunContext]) -> str:
+    """Cancel one of your pending scheduled messages (an ID from list_scheduled_messages)."""
+    ctx = runtime.context
+    async with ctx.services.session_factory() as session:
+        query = select(ScheduledMessage).where(ScheduledMessage.id == message_id,
+                                               ScheduledMessage.sender_actor_id == ctx.actor_id)
+        if ctx.sandbox_id:
+            query = query.join(Thread, Thread.id == ScheduledMessage.thread_id).where(
+                Thread.sandbox_id == ctx.sandbox_id)
+        job = (await session.execute(query)).scalar_one_or_none()
+        if job is None:
+            return "Error: scheduled message not found"
+        if job.status != "pending":
+            return f"Error: it is already {job.status}"
+        job.status = "cancelled"
+        thread_id = job.thread_id
+        await session.commit()
+    await ctx.services.bus.publish("scheduled.updated", thread_id, {"id": message_id, "status": "cancelled"})
+    return f"Cancelled scheduled message {message_id}"
+
+
+SCHEDULING_TOOLS = [schedule_message, list_scheduled_messages, cancel_scheduled_message]

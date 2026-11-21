@@ -102,6 +102,11 @@ class Settings(BaseSettings):
 
     max_concurrent_runs: int = 4
     max_bot_hops: int = 20
+    # Recurring schedules (runtime/recurring.py). The interval and count limits apply to bots only.
+    recurring_min_interval_seconds: int = 900  # shortest gap between two firings of a bot's schedule
+    recurring_max_per_bot: int = 10            # schedules one bot may own, paused ones included
+    recurring_grace_seconds: int = 3600        # a firing missed by less than this (e.g. downtime) is caught up once
+    default_timezone: str = "UTC"              # IANA zone for schedules that name none
     # Token-efficiency controls. See README "Configuration".
     prompt_caching: bool = True          # add Anthropic cache breakpoints to every model call
     include_llm_call_details: bool = Field(default=True, validation_alias="OPENBOT_INCLUDE_LLM_CALL_DETAILS")  # expose per-call token details in activity events; launchers opt out explicitly

@@ -6,6 +6,7 @@ import logging
 from sqlalchemy import select, update
 
 from openbot.db.models import Message, ScheduledMessage, utcnow
+from openbot.runtime import recurring
 from openbot.runtime.delivery import cron_actor, post_message
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,12 @@ class Scheduler:
             await asyncio.sleep(1)
 
     async def run_due(self):
+        # Due recurring schedules first: each firing becomes a due one-shot that is
+        # delivered (and published) in this same sweep.
+        try:
+            await recurring.fire_due(self.services)
+        except Exception:
+            log.exception("recurring schedule sweep failed")
         async with self.services.session_factory() as session:
             ids = (await session.execute(select(ScheduledMessage.id).where(
                 ScheduledMessage.status == "pending", ScheduledMessage.due_at <= utcnow()
@@ -106,7 +113,8 @@ class Scheduler:
             await self.services.bus.publish(
                 "scheduled.updated", job.thread_id,
                 {"id": job.id, "status": job.status, "attempts": job.attempts,
-                 "result_message_id": job.result_message_id, "last_error": job.last_error},
+                 "result_message_id": job.result_message_id, "last_error": job.last_error,
+                 "recurring_id": job.recurring_id},
             )
         except Exception:
             log.exception("could not publish scheduled update for %s", job.id)

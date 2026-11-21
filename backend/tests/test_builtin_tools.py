@@ -431,6 +431,10 @@ def test_selectable_names():
         "todo_write",
         "scratchpad",
         "load_skill",
+        "schedule_recurring",
+        "list_recurring",
+        "pause_recurring",
+        "cancel_recurring",
     ]
 
 

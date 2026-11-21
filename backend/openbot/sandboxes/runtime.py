@@ -29,7 +29,8 @@ def resource(settings, name):
 def validate_bot(bot, settings=None, registry=None):
     from openbot.runtime.cli_agents import adapter_for
     from openbot.tools.builtin import SELECTABLE_TOOLS
-    allowed = {t.name for t in SELECTABLE_TOOLS} | {"schedule_message", "list_scheduled_messages"}
+    from openbot.tools.builtin.scheduling import SCHEDULING_TOOLS
+    allowed = {t.name for t in SELECTABLE_TOOLS} | {t.name for t in SCHEDULING_TOOLS}
     # Installed Python tools are trusted controller code, not sandboxed plugins.
     # MCP has a separate execution lifecycle; do not silently expose host servers.
     if registry is not None:
@@ -187,10 +188,12 @@ async def inspect(services, sandbox_id, operation, args, directory=None):
 
 
 def tools(names, registry=None):
+    from openbot.tools.builtin.recurring import RECURRING_TOOLS
     from openbot.tools.builtin.scheduling import SCHEDULING_TOOLS
     from openbot.tools.builtin.scratchpad import scratchpad
     from openbot.tools.builtin.todo import todo_write
-    host_tools = {t.name: t for t in (scratchpad, todo_write, *SCHEDULING_TOOLS)}
+    # Controller-side tools: they touch only OpenBot's database, scoped to the sandbox.
+    host_tools = {t.name: t for t in (scratchpad, todo_write, *SCHEDULING_TOOLS, *RECURRING_TOOLS)}
     result = []
     for name in names:
         if name in host_tools:
