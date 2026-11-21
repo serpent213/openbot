@@ -91,13 +91,12 @@
 
 /* ── Syntax highlighting (lib/highlight.ts) ───────────────────────────────────
    Shiki gives every token both colours as --shiki-light / --shiki-dark; the theme picks one,
-   the same three ways as the tokens above. The block background is ours, not the theme's. */
+   the same three ways as the tokens above. Shiki sets no background, so blocks keep ours. */
 .shiki, .shiki span { color: var(--shiki-light); }
 :root[data-theme="dark"] .shiki, :root[data-theme="dark"] .shiki span { color: var(--shiki-dark); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .shiki, :root:not([data-theme="light"]) .shiki span { color: var(--shiki-dark); }
 }
-.shiki { background: transparent !important; }
 
 /* Installed/mobile shell: safe areas are outside the scrolling content. */
 .app-viewport {

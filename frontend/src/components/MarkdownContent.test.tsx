@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import MarkdownContent from "./MarkdownContent";
+import { loadLang } from "../lib/highlight";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -120,5 +121,43 @@ describe("MarkdownContent", () => {
     }
     // The two dark definitions must agree, or the toggle and the OS preference would drift apart.
     expect(pinned![1].replace(/\s+/g, "")).toBe(system![1].replace(/\s+/g, ""));
+  });
+
+  describe("code blocks", () => {
+    it("highlights known languages, also inside lists, and keeps the text", async () => {
+      await Promise.all([loadLang("ts"), loadLang("python")]);
+      let container: HTMLElement;
+      ({ container, cleanup } = await renderContent("```ts\nconst x = 1;\n```\n\n- item\n\n  ```python\n  print(1)\n  ```"));
+      const blocks = container.querySelectorAll(".code-block pre.shiki");
+      expect(blocks).toHaveLength(2);
+      expect(container.querySelector('.code-block[data-lang="ts"]')?.textContent).toBe("const x = 1;");
+      expect(container.querySelector("li .code-block")?.textContent).toBe("print(1)");
+      expect(blocks[0].querySelector("span[style*='--shiki-dark']")).not.toBeNull();
+    });
+
+    it("leaves unknown and unlabelled languages plain", async () => {
+      let container: HTMLElement;
+      ({ container, cleanup } = await renderContent("```nope\nsome code\n```\n\n```\nplain\n```"));
+      expect(container.querySelector(".shiki")).toBeNull();
+      expect([...container.querySelectorAll("pre code")].map(c => c.textContent)).toEqual(["some code", "plain"]);
+    });
+
+    it("renders HTML in code as text", async () => {
+      await loadLang("html");
+      let container: HTMLElement;
+      for (const lang of ["html", "nope"]) {
+        cleanup();
+        ({ container, cleanup } = await renderContent("```" + lang + "\n</pre><img src=x onerror=alert(1)><script>alert(2)</script>\n```"));
+        expect(container.querySelector("img, script")).toBeNull();
+        expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
+      }
+    });
+
+    it("does not let raw HTML address another block's placeholder with markup", async () => {
+      let container: HTMLElement;
+      ({ container, cleanup } = await renderContent('<pre data-ob-code="7"></pre>\n\n```\n<b>x</b>\n```'));
+      expect(container.querySelector("b")).toBeNull();
+      expect(container.textContent).toContain("<b>x</b>");
+    });
   });
 });
