@@ -5,7 +5,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import ScheduledPage, { describeCron, presetCron } from "./ScheduledPage";
+import ScheduledPage from "./ScheduledPage";
+import { describeCron, presetCron } from "../lib/cronPresets";
 import type { RecurringSchedule } from "../api/client";
 
 const fake = vi.hoisted(() => ({ api: {} as Record<string, (...args: any[]) => any> }));
