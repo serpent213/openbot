@@ -1,9 +1,7 @@
-"""Thin HTTP/SSE client for the OpenBot REST API and the GitHub issues API.
+"""Thin HTTP/SSE client for the OpenBot REST API.
 
 Everything here is a thin wrapper around endpoints the server already exposes
-under ``/api/v1``; there is no bespoke client->server protocol. The only
-out-of-tree call is ``GET /repos/{owner}/{name}/issues`` against
-``api.github.com``, because the server does not proxy GitHub issues.
+under ``/api/v1``; there is no bespoke client->server protocol.
 """
 
 from __future__ import annotations
@@ -15,7 +13,6 @@ from typing import Any
 import httpx
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
-GITHUB_API_BASE = "https://api.github.com"
 
 # Event names the server publishes over the /events SSE stream. Discovering these
 # in the bus publish sites (runtime/delivery.py, runtime/runner.py, runtime/actors.py)
@@ -155,57 +152,3 @@ class OpenBotClient:
                     data.setdefault("event", event)
                 yield data
                 event = "message"
-
-    # -- GitHub issues (no server endpoint exists) -------------------------
-
-    def list_github_issues(
-        self, repo: str = "regnull/openbot", *, state: str = "open", per_page: int = 30
-    ) -> list[dict[str, Any]]:
-        """Fetch issues directly from the GitHub REST API.
-
-        The OpenBot server does not proxy GitHub, so this hits
-        ``https://api.github.com/repos/{repo}/issues``. A token in
-        ``GITHUB_TOKEN`` is optional and only raises the rate limit.
-        """
-        url = f"{GITHUB_API_BASE}/repos/{repo}/issues"
-        headers = {"Accept": "application/vnd.github+json"}
-        token = self._github_token()
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        resp = httpx.get(
-            url, params={"state": state, "per_page": per_page}, headers=headers, timeout=30.0
-        )
-        if resp.status_code >= 400:
-            raise OpenBotClientError(f"github issues {resp.status_code}: {resp.text[:300]}")
-        return resp.json()
-
-    @staticmethod
-    def _github_token() -> str | None:
-        import os
-
-        return os.environ.get("GITHUB_TOKEN")
-
-
-class GitHubIssuesClient:
-    """Standalone client for GitHub issues, used when only ``issues`` is needed.
-
-    Kept separate so the import surface of :class:`OpenBotClient` stays server-
-    focused; the CLI wires the two together.
-    """
-
-    def __init__(self, token: str | None = None) -> None:
-        self._token = token
-
-    def list_issues(
-        self, repo: str = "regnull/openbot", *, state: str = "open", per_page: int = 30
-    ) -> list[dict[str, Any]]:
-        url = f"{GITHUB_API_BASE}/repos/{repo}/issues"
-        headers = {"Accept": "application/vnd.github+json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
-        resp = httpx.get(
-            url, params={"state": state, "per_page": per_page}, headers=headers, timeout=30.0
-        )
-        if resp.status_code >= 400:
-            raise OpenBotClientError(f"github issues {resp.status_code}: {resp.text[:300]}")
-        return resp.json()

@@ -8,7 +8,7 @@ Commands mirror the core web-UI flows against a running OpenBot server:
     openbot send <thread> "<msg>" [--bot @h] Post a message, optionally @-ing a bot
     openbot bots                           List bots
     openbot runs [<thread>]                List runs (optionally for one thread)
-    openbot issues [--repo regnull/openbot] List GitHub issues
+    openbot run <id>                       Show one run and its event log
 
 This is a frontend only — every command calls the existing ``/api/v1`` REST and
 SSE endpoints. See README.md in this package for a full usage guide.
@@ -17,7 +17,6 @@ SSE endpoints. See README.md in this package for a full usage guide.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 from uuid import UUID
@@ -25,7 +24,7 @@ from uuid import UUID
 import click
 import httpx
 
-from openbot_cli.client import GitHubIssuesClient, OpenBotClient, OpenBotClientError
+from openbot_cli.client import OpenBotClient, OpenBotClientError
 from openbot_cli.config import (
     CONFIG_PATH,
     ConfigError,
@@ -35,7 +34,6 @@ from openbot_cli.config import (
 )
 from openbot_cli.formatting import (
     format_bots,
-    format_issues,
     format_run_detail,
     format_runs,
     format_thread_detail,
@@ -54,7 +52,7 @@ class _ClientErrorGroup(click.Group):
         except OpenBotClientError as exc:
             raise click.ClickException(str(exc)) from exc
         except httpx.TransportError as exc:
-            # Streams and GitHub calls bypass OpenBotClient._request.
+            # Event streams bypass OpenBotClient._request.
             raise click.ClickException(f"network error: {exc}") from exc
 
 
@@ -252,24 +250,6 @@ def run(ctx: click.Context, run_id: str, as_json: bool) -> None:
         click.echo(json.dumps(detail, indent=2, default=str))
         return
     click.echo(format_run_detail(detail))
-
-
-@cli.command("issues")
-@click.option("--repo", default="regnull/openbot", show_default=True, help="owner/name repository.")
-@click.option("--state", default="open", show_default=True, type=click.Choice(["open", "closed", "all"]))
-@click.option("--json", "as_json", is_flag=True, help="Emit raw JSON.")
-@click.pass_context
-def issues(ctx: click.Context, repo: str, state: str, as_json: bool) -> None:
-    """List GitHub issues for REPO (fetched from the GitHub REST API)."""
-    token = ctx.obj.get("api_key") or os.environ.get("GITHUB_TOKEN")
-    client = GitHubIssuesClient(token=token)
-    data = client.list_issues(repo=repo, state=state)
-    # GitHub's issues endpoint also returns PRs; filter them out for a clean list.
-    data = [it for it in data if "pull_request" not in it]
-    if as_json:
-        click.echo(json.dumps(data, indent=2, default=str))
-        return
-    click.echo(format_issues(data))
 
 
 def main() -> int:

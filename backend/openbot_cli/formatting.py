@@ -124,18 +124,3 @@ def short_payload(payload: dict | None) -> str:
     if "content" in payload:
         return str(payload["content"])[:120]
     return str(payload)[:120]
-
-
-def format_issues(issues: list[dict]) -> str:
-    if not issues:
-        return "No issues found."
-    lines = []
-    for it in issues:
-        number = it.get("number")
-        title = (it.get("title") or "").replace("\n", " ")
-        labels = ", ".join(lbl.get("name", "") for lbl in it.get("labels", []))
-        state = it.get("state", "?")
-        lines.append(f"#{number} [{state}] {title}")
-        if labels:
-            lines.append(f"    labels: {labels}")
-    return "\n".join(lines)

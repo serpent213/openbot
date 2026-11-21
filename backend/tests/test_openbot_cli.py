@@ -17,7 +17,7 @@ from click.testing import CliRunner
 from httpx import SyncByteStream
 
 from openbot_cli import cli as cli_mod
-from openbot_cli.client import GitHubIssuesClient, OpenBotClient, OpenBotClientError
+from openbot_cli.client import OpenBotClient, OpenBotClientError
 
 
 class _SS(SyncByteStream):
@@ -168,27 +168,6 @@ def test_stream_events_yields_parsed_events():
     assert captured["params"]["thread_id"] == "t1"
     assert events[0] == {"event": "message.created", "id": "m1"}
     assert events[1] == {"event": "message", "plain": True}
-
-
-def test_github_issues_calls_rest_api(monkeypatch):
-    captured = {}
-
-    class FakeResp:
-        status_code = 200
-        text = ""
-
-        def json(self):
-            return [{"number": 1, "title": "Bug", "state": "open", "labels": []}]
-
-    def fake_get(url, params=None, headers=None, timeout=None):
-        captured["url"] = url
-        captured["params"] = params
-        return FakeResp()
-
-    monkeypatch.setattr(httpx, "get", fake_get)
-    issues = GitHubIssuesClient().list_issues(repo="regnull/openbot")
-    assert captured["url"].endswith("/repos/regnull/openbot/issues")
-    assert issues[0]["number"] == 1
 
 
 def test_client_error_on_4xx():
@@ -342,22 +321,6 @@ def test_cli_connect_warns_when_server_unreachable(tmp_path, monkeypatch):
     assert "Warning:" in result.output
     # Config is still saved even though the probe failed.
     assert json.loads(cfg.read_text())["base_url"] == "https://down.test"
-
-
-def test_cli_issues_fetches_github(monkeypatch):
-    class FakeResp:
-        status_code = 200
-        text = ""
-
-        def json(self):
-            return [{"number": 7, "title": "Broken thing", "state": "open", "labels": [{"name": "bug"}]}]
-
-    monkeypatch.setattr(httpx, "get", lambda *a, **k: FakeResp())
-    c = _client(lambda req: _json_response({}))
-    result = _runner_with_client(c)(["issues", "--repo", "regnull/openbot"])
-    assert result.exit_code == 0, result.output
-    assert "#7" in result.output
-    assert "Broken thing" in result.output
 
 
 def test_cli_thread_watch_streams(monkeypatch):
