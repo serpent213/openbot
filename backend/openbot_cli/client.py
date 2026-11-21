@@ -27,6 +27,10 @@ EVENT_BOTS_UPDATED = "bots.updated"
 class OpenBotClientError(RuntimeError):
     """Raised when the server is unreachable or returns a non-2xx status."""
 
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status  # HTTP status, None when the server was not reached
+
 
 class OpenBotClient:
     """Minimal client for the OpenBot ``/api/v1`` REST surface."""
@@ -70,7 +74,7 @@ class OpenBotClient:
         resp = self.request_raw(method, path, **kwargs)
         if resp.status_code >= 400:
             raise OpenBotClientError(
-                f"{method} {path} -> {resp.status_code}: {resp.text[:300]}"
+                f"{method} {path} -> {resp.status_code}: {resp.text[:300]}", status=resp.status_code
             )
         if resp.status_code == 204 or not resp.content:
             return None
@@ -114,6 +118,9 @@ class OpenBotClient:
         return self._request("POST", f"/api/v1/threads/{thread_id}/messages", json=body)
 
     # -- bots / runs -------------------------------------------------------
+
+    def list_actors(self) -> list[dict[str, Any]]:
+        return self._request("GET", "/api/v1/actors")
 
     def list_bots(self) -> list[dict[str, Any]]:
         return self._request("GET", "/api/v1/bots")

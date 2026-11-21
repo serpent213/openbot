@@ -679,3 +679,142 @@ def test_builtin_commands_work_without_plugin_schema(tmp_path, monkeypatch):
     unknown = invoke(["kanban", "list-boards"])
     assert unknown.exit_code == 2
     assert "plugin commands unavailable" in unknown.output
+
+
+# ---------------------------------------------------------------------------
+# Agent-friendly behaviour: waiting, NDJSON, JSON errors, run prefixes, --data
+# ---------------------------------------------------------------------------
+
+_POSTED = {"message": {"id": "m1", "sender_name": "You", "created_at": "2026-11-21T10:00:00Z"},
+           "addressed": ["eng"], "unaddressed": False}
+
+
+def _wait_server(run_states, *, reply="done, see abc123"):
+    """A thread whose eng run goes through `run_states`, one per poll."""
+    polls = {"n": 0}
+
+    def handler(req):
+        path = req.url.path
+        if path.endswith("/messages"):
+            return _json_response(_POSTED, status=201)
+        if path == "/api/v1/actors":
+            return _json_response([{"id": "a-eng", "handle": "eng", "kind": "bot"},
+                                   {"id": "a-you", "handle": "you", "kind": "human"}])
+        if path == "/api/v1/runs":
+            state = run_states[min(polls["n"], len(run_states) - 1)]
+            polls["n"] += 1
+            old = {"id": "r-old", "actor_id": "a-eng", "status": "running", "created_at": "2026-11-21T09:00:00Z"}
+            if state is None:
+                return _json_response([old])  # not picked up yet; an older run is ignored
+            return _json_response([old, {"id": "r1", "actor_id": "a-eng", "status": state,
+                                         "created_at": "2026-11-21T10:00:01Z", "error": None,
+                                         "interrupt": {"tool": "x"} if state == "waiting_human" else None}])
+        if path.startswith("/api/v1/threads/"):
+            return _json_response({"messages": [
+                {"id": "m1", "sender_name": "You", "content": "go", "run_id": None, "created_at": "2026-11-21T10:00:00Z"},
+                {"id": "m2", "sender_name": "Eng", "content": reply, "run_id": "r1", "created_at": "2026-11-21T10:00:09Z"},
+            ]})
+        return _json_response({}, status=404)
+
+    return handler, polls
+
+
+def _no_sleep(monkeypatch):
+    monkeypatch.setattr(cli_mod.time, "sleep", lambda s: None)
+
+
+def test_send_wait_prints_reply_after_runs_finish(monkeypatch):
+    _no_sleep(monkeypatch)
+    handler, polls = _wait_server([None, "queued", "running", "completed"], reply="x" * 900)
+    t1 = "11111111-1111-1111-1111-111111111111"
+    result = _runner_with_client(_client(handler))(["send", t1, "go", "--bot", "eng", "--wait"])
+    assert result.exit_code == 0, result.output
+    assert "x" * 900 in result.output  # replies are not truncated
+    assert "run r1  completed" in result.output
+    assert polls["n"] >= 5  # needed two quiet polls after completion
+
+
+def test_send_wait_json_and_exit_codes(monkeypatch):
+    _no_sleep(monkeypatch)
+    t1 = "11111111-1111-1111-1111-111111111111"
+    handler, _ = _wait_server(["running", "completed"])
+    result = _runner_with_client(_client(handler))(["send", t1, "go", "--wait", "--json"])
+    data = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert data["status"] == "completed"
+    assert [r["id"] for r in data["runs"]] == ["r1"]
+    assert [m["id"] for m in data["replies"]] == ["m2"]
+
+    handler, _ = _wait_server(["running", "waiting_human"])
+    result = _runner_with_client(_client(handler))(["send", t1, "go", "--wait"])
+    assert result.exit_code == 3
+    assert "approve or reject it in the web UI" in result.output
+
+    handler, _ = _wait_server(["failed"])
+    assert _runner_with_client(_client(handler))(["send", t1, "go", "--wait"]).exit_code == 1
+
+
+def test_send_wait_times_out(monkeypatch):
+    clock = {"t": 0.0}
+    monkeypatch.setattr(cli_mod.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(cli_mod.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+    handler, _ = _wait_server(["running"])
+    t1 = "11111111-1111-1111-1111-111111111111"
+    result = _runner_with_client(_client(handler))(["send", t1, "go", "--wait", "--timeout", "5"])
+    assert result.exit_code == 124
+    assert "Timed out after 5s" in result.output
+
+
+def test_watch_json_emits_ndjson(monkeypatch):
+    detail = {"id": "t1", "title": "Trip", "messages": []}
+
+    def handler(req):
+        return _json_response(detail)
+
+    c = _client(handler)
+    monkeypatch.setattr(c, "stream_events", lambda thread_id=None: iter(
+        [{"event": "run.updated", "status": "running"}, {"event": "message.created", "content": "hi"}]))
+    result = _runner_with_client(c)(["thread", "11111111-1111-1111-1111-111111111111", "watch", "--json"])
+    assert result.exit_code == 0, result.output
+    lines = [json.loads(line) for line in result.output.splitlines()]
+    assert [line["event"] for line in lines] == ["thread.snapshot", "run.updated", "message.created"]
+    assert lines[0]["title"] == "Trip"
+
+
+def test_run_accepts_displayed_prefix():
+    full = "a58ddc62-e84f-4e9e-b88e-ccf2718b04d7"
+
+    def handler(req):
+        if req.url.path == "/api/v1/runs":
+            return _json_response([{"id": full}, {"id": "b0000000-0000-0000-0000-000000000000"}])
+        if req.url.path == f"/api/v1/runs/{full}":
+            return _json_response({"id": full, "status": "completed", "actor_id": "a", "events": []})
+        return _json_response({"detail": "run not found"}, status=404)
+
+    invoke = _runner_with_client(_client(handler))
+    result = invoke(["run", "a58ddc62", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["id"] == full
+    missing = invoke(["run", "zz"])
+    assert missing.exit_code == 1 and "No run matches 'zz'" in missing.output
+
+
+def test_json_flag_makes_errors_json():
+    c = _client(lambda req: _json_response({"detail": "nope"}, status=404))
+    result = _runner_with_client(c)(["bots", "--json"])
+    assert result.exit_code == 1
+    err = json.loads(result.stderr)
+    assert err["status"] == 404 and err["exit_code"] == 1 and "nope" in err["error"]
+    plain = _runner_with_client(c)(["bots"])
+    assert plain.exit_code == 1 and plain.stderr.startswith("Error:")
+
+
+def test_plugin_data_merges_with_options(plugin_server):
+    invoke, calls = plugin_server
+    result = invoke(["kanban", "update-card", "c1", "-d", '{"status": "review", "result": "from data"}',
+                     "--status", "done"])
+    assert result.exit_code == 0, result.output
+    body = calls[-1][2]
+    assert body == {"status": "done", "result": "from data", "expected_version": 4}
+    bad = invoke(["kanban", "update-card", "c1", "-d", "[1]"])
+    assert bad.exit_code == 2 and "JSON object" in bad.output

@@ -34,10 +34,10 @@ The config is stored at `~/.config/openbot-cli/config.json`.
 | `openbot connect <url> [--api-key KEY]` | Save server URL (and optional key) for later commands. |
 | `openbot threads [list]` | List threads (title, last activity, default bot, active flag). |
 | `openbot thread <id> [watch]` | Print a thread's messages; add `watch` to follow live SSE events. |
-| `openbot send <thread> "<msg>" [--bot @handle]` | Post a message; `--bot` (repeatable) `@`-mentions a bot. |
+| `openbot send <thread> "<msg>" [--bot @handle] [--wait]` | Post a message; `--bot` (repeatable) `@`-mentions a bot, `--wait` prints the replies once the runs are done. |
 | `openbot bots` | List bots (handle, name, active/disabled state, description). |
 | `openbot runs [<thread>]` | List runs; pass a `<thread>` id to scope to one thread. |
-| `openbot run <id>` | Show one run and its event log (useful for streaming deltas). |
+| `openbot run <id>` | Show one run and its event log; accepts the prefix `runs` shows. |
 | `openbot api [-X METHOD] <path> [-f/-F key=value] [-d JSON\|@file\|@-]` | Send any request to the server API and print the JSON response. |
 | `openbot plugins [--refresh]` | List active plugins and their generated commands. |
 | `openbot <plugin> <command> ...` | Commands generated from a plugin's HTTP API, e.g. `openbot kanban list-cards <board>`. |
@@ -75,6 +75,29 @@ and prints, as they arrive:
 - `run.event` streaming text deltas (printed inline, like a typing bot).
 
 Press `Ctrl+C` to disconnect.
+
+## Scripts and agents
+
+- `--json` on any command prints the raw API payload, and makes errors a JSON
+  object on stderr: `{"error": ..., "exit_code": 1, "status": 404}` (`status`
+  only for HTTP errors).
+- `send --wait` blocks until every addressed bot has finished a run started by
+  the message and the thread has stayed quiet for two polls, so chained replies
+  count. It prints the replies in full, or with `--json` one object with
+  `status`, `message`, `addressed`, `runs` and `replies`. Exit codes: 0 completed,
+  1 a run failed or was cancelled, 3 a run waits for approval in the web UI,
+  124 timed out (`--timeout`, default 1800 s, 0 = no limit). The runs keep going
+  on the server either way. Progress lines go to stderr.
+- `thread <id> watch --json` streams NDJSON: a `thread.snapshot` line, then one
+  line per server event.
+- Thread and run IDs accept the 8-character prefixes the tables show.
+- Generated plugin commands with a request body take `-d JSON|@file|@-`;
+  options given as well override its fields.
+
+```bash
+openbot send <thread> "Summarize the open review cards" --bot @engineer --wait --json \
+  | jq -r '.replies[].content'
+```
 
 ## Raw API access
 

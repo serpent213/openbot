@@ -52,14 +52,14 @@ def format_thread_detail(detail: dict) -> str:
     return "\n".join(out)
 
 
-def format_message(m: dict) -> str:
+def format_message(m: dict, *, full: bool = False) -> str:
     sender = m.get("sender_name") or m.get("sender_actor_id", "?")
     ts = format_ts(m.get("created_at"))
     content = m.get("content", "")
     header = f"[{ts}] {sender}"
     if m.get("mentions"):
         header += " → " + " ".join(f"@{h}" for h in m["mentions"])
-    if len(content) > 500:
+    if not full and len(content) > 500:
         content = content[:500] + f"\n... [{len(content) - 500} more chars]"
     return f"{header}:\n{content}"
 

@@ -30,6 +30,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,7 +58,7 @@ def _cache_path(base_url: str) -> Path:
 def _fetch(client: OpenBotClient, path: str) -> Any:
     resp = client.request_raw("GET", path, timeout=FETCH_TIMEOUT)
     if resp.status_code >= 400:
-        raise OpenBotClientError(f"GET {path} -> {resp.status_code}: {resp.text[:300]}")
+        raise OpenBotClientError(f"GET {path} -> {resp.status_code}: {resp.text[:300]}", status=resp.status_code)
     return resp.json()
 
 
@@ -319,6 +320,23 @@ def _error_detail(resp) -> str:
 # -- click wiring ------------------------------------------------------------
 
 
+def read_json_arg(value: str, option: str = "--data") -> Any:
+    """Parse JSON given inline, as @FILE, or as @- for stdin."""
+    if value == "@-":
+        text = sys.stdin.read()
+    elif value.startswith("@"):
+        try:
+            text = Path(value[1:]).read_text()
+        except OSError as exc:
+            raise click.UsageError(f"{option}: {exc}") from exc
+    else:
+        text = value
+    try:
+        return json.loads(text)
+    except ValueError as exc:
+        raise click.UsageError(f"{option} is not valid JSON: {exc}") from exc
+
+
 def _expand(path: str, values: dict[str, Any]) -> str:
     return re.sub(r"{(\w+)}", lambda m: str(values[m.group(1)]), path)
 
@@ -338,21 +356,32 @@ def _build_command(op: Operation, get_client) -> click.Command:
             help_text = (help_text + " ('null' clears it)").strip()
         if p.name in op.fill:
             help_text = (help_text + " (default: current value)").strip()
+        # Body fields may also come from --data, so they are checked after merging.
+        required = p.required and p.location != "body"
+        if p.required and p.location == "body":
+            help_text = (help_text + " [required]").strip()
         if schema.get("type") == "boolean":
             flag = _opt(p.name)
             params.append(click.Option([f"--{flag}/--no-{flag}", key], default=None, help=help_text,
-                                       required=p.required))
+                                       required=required))
         else:
             params.append(click.Option([f"--{_opt(p.name)}", key], type=_click_type(schema), default=None,
-                                       required=p.required, help=help_text))
+                                       required=required, help=help_text))
+    if op.has_body:
+        params.append(click.Option(["-d", "--data", "body_json"], metavar="JSON|@FILE|@-",
+                                   help="JSON body; options given as well override its fields."))
     params.append(click.Option(["--json", "as_json"], is_flag=True, help="Emit raw JSON."))
 
-    def callback(as_json: bool = False, **values: Any) -> None:
+    def callback(as_json: bool = False, body_json: str | None = None, **values: Any) -> None:
         client: OpenBotClient = get_client()
         path_values: dict[str, Any] = {}
         query: dict[str, Any] = {}
         headers: dict[str, str] = {}
         body: dict[str, Any] = {}
+        if body_json is not None:
+            body = read_json_arg(body_json)
+            if not isinstance(body, dict):
+                raise click.UsageError("--data must be a JSON object")
         for key, value in values.items():
             p = by_key[key]
             if value is None:
@@ -365,12 +394,17 @@ def _build_command(op: Operation, get_client) -> click.Command:
                 headers[p.name] = str(value)
             else:
                 body[p.name] = _convert(p, value)
+        missing_required = [p for p in op.params if p.location == "body" and p.required and p.name not in body]
+        if missing_required:
+            names = ", ".join(f"--{_opt(p.name)}" for p in missing_required)
+            raise click.UsageError(f"missing {names} (or set it in --data)")
         path = _expand(op.path, path_values)
         missing = [k for k in op.fill if k not in body]
         if missing:
             current = client.request_raw("GET", path)
             if current.status_code >= 400:
-                raise OpenBotClientError(f"GET {path} -> {current.status_code}: {_error_detail(current)}")
+                raise OpenBotClientError(f"GET {path} -> {current.status_code}: {_error_detail(current)}",
+                                         status=current.status_code)
             record = current.json()
             for key in missing:
                 body[key] = record.get(op.fill[key])
@@ -379,7 +413,8 @@ def _build_command(op: Operation, get_client) -> click.Command:
             kwargs["json"] = body
         resp = client.request_raw(op.method, path, **kwargs)
         if resp.status_code >= 400:
-            raise OpenBotClientError(f"{op.method} {path} -> {resp.status_code}: {_error_detail(resp)}")
+            raise OpenBotClientError(f"{op.method} {path} -> {resp.status_code}: {_error_detail(resp)}",
+                                     status=resp.status_code)
         data = resp.json() if resp.content else None
         if as_json:
             click.echo(json.dumps(data, indent=2, ensure_ascii=False))

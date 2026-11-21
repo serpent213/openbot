@@ -5,7 +5,7 @@ Commands mirror the core web-UI flows against a running OpenBot server:
     openbot connect <url> [--api-key KEY]   Save + verify connection settings
     openbot threads [list]                  List threads
     openbot thread <id> [watch]             Show a thread (or live-follow it)
-    openbot send <thread> "<msg>" [--bot @h] Post a message, optionally @-ing a bot
+    openbot send <thread> "<msg>" [--bot @h] [--wait]  Post a message, optionally wait for replies
     openbot bots                           List bots
     openbot runs [<thread>]                List runs (optionally for one thread)
     openbot run <id>                       Show one run and its event log
@@ -22,6 +22,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
+from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -39,12 +42,19 @@ from openbot_cli.config import (
 )
 from openbot_cli.formatting import (
     format_bots,
+    format_message,
     format_run_detail,
     format_runs,
     format_thread_detail,
     format_threads,
 )
-from openbot_cli.plugins import build_group, load_schema
+from openbot_cli.plugins import build_group, load_schema, read_json_arg
+
+# Run statuses that may still change (backend: db/models.py OPEN_RUN_STATUSES).
+OPEN_RUN_STATUSES = ("queued", "running", "waiting_human")
+# send --wait exit codes besides 0 (completed) and 1 (a run failed or was cancelled).
+EXIT_WAITING_HUMAN = 3
+EXIT_TIMEOUT = 124
 
 
 def _make_client(base_url: str, api_key: str | None, actor: str | None = None) -> OpenBotClient:
@@ -76,17 +86,41 @@ def _current_client() -> OpenBotClient:
     return _ensure_client(click.get_current_context())
 
 
+class _ClientError(click.ClickException):
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class _ClientErrorGroup(click.Group):
-    """Maps client errors to one-line messages and adds one group per plugin."""
+    """Maps client errors to one-line messages and adds one group per plugin.
+
+    With --json anywhere on the command line, errors are a JSON object on stderr
+    ({"error", "exit_code", and "status" for HTTP errors}), so scripts and agents
+    parse a single format.
+    """
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        ctx.meta["json_errors"] = "--json" in args
+        return super().parse_args(ctx, args)
 
     def invoke(self, ctx: click.Context):
         try:
-            return super().invoke(ctx)
-        except OpenBotClientError as exc:
-            raise click.ClickException(str(exc)) from exc
-        except httpx.TransportError as exc:
-            # Event streams bypass OpenBotClient._request.
-            raise click.ClickException(f"network error: {exc}") from exc
+            try:
+                return super().invoke(ctx)
+            except OpenBotClientError as exc:
+                raise _ClientError(str(exc), exc.status) from exc
+            except httpx.TransportError as exc:
+                # Event streams bypass OpenBotClient._request.
+                raise _ClientError(f"network error: {exc}") from exc
+        except click.ClickException as exc:
+            if not ctx.meta.get("json_errors"):
+                raise
+            payload = {"error": exc.format_message(), "exit_code": exc.exit_code}
+            if getattr(exc, "status", None) is not None:
+                payload["status"] = exc.status
+            click.echo(json.dumps(payload, ensure_ascii=False), err=True)
+            raise click.exceptions.Exit(exc.exit_code) from exc
 
     def _plugin_groups(self, ctx: click.Context) -> dict[str, click.Group]:
         if "plugin_groups" not in ctx.meta:
@@ -121,25 +155,34 @@ class _ClientErrorGroup(click.Group):
         return cmd
 
 
-def _resolve_thread_id(client: OpenBotClient, value: str) -> str:
-    """Expand a displayed prefix; full UUIDs need no listing request."""
+def _resolve_prefix(kind: str, value: str, list_ids: Callable[[], Iterable[str]]) -> str:
+    """Expand a displayed ID prefix; full UUIDs need no listing request."""
     try:
         UUID(value)
     except ValueError:
         pass
     else:
         return value
-    ids = [thread["id"] for thread in client.list_threads()]
+    ids = list(list_ids())
     if value in ids:
         return value
-    matches = [tid for tid in ids if tid.startswith(value)]
+    matches = [i for i in ids if i.startswith(value)]
     if len(matches) == 1:
         return matches[0]
     if not matches:
-        raise click.ClickException(f"No thread matches {value!r}.")
+        raise click.ClickException(f"No {kind} matches {value!r}.")
     raise click.ClickException(
-        f"Ambiguous thread ID {value!r}; use a longer prefix: " + ", ".join(matches)
+        f"Ambiguous {kind} ID {value!r}; use a longer prefix: " + ", ".join(matches)
     )
+
+
+def _resolve_thread_id(client: OpenBotClient, value: str) -> str:
+    return _resolve_prefix("thread", value, lambda: (t["id"] for t in client.list_threads()))
+
+
+def _resolve_run_id(client: OpenBotClient, value: str) -> str:
+    # The server lists the latest 200 runs; older ones need the full ID.
+    return _resolve_prefix("run", value, lambda: (r["id"] for r in client.list_runs()))
 
 
 @click.group(cls=_ClientErrorGroup)
@@ -209,6 +252,15 @@ def thread(ctx: click.Context, thread_id: str, subcommand: str | None, limit: in
     client: OpenBotClient = ctx.obj["client"]
     thread_id = _resolve_thread_id(client, thread_id)
     detail = client.get_thread(thread_id, limit=limit)
+    if as_json and subcommand == "watch":
+        # NDJSON: a snapshot line, then one line per server event.
+        _emit({"event": "thread.snapshot", **detail})
+        try:
+            for item in client.stream_events(thread_id=thread_id):
+                _emit(item)
+        except KeyboardInterrupt:
+            pass
+        return
     if as_json:
         click.echo(json.dumps(detail, indent=2, default=str))
         return
@@ -221,13 +273,16 @@ def thread(ctx: click.Context, thread_id: str, subcommand: str | None, limit: in
             click.echo("\nDisconnected.")
 
 
+def _emit(item: dict) -> None:
+    click.echo(json.dumps(item, default=str, ensure_ascii=False))
+    sys.stdout.flush()
+
+
 def _watch(client: OpenBotClient, thread_id: str) -> None:
     for item in client.stream_events(thread_id=thread_id):
         event = item.get("event", "?")
         data = item.get("data", item)
         if event == "message.created":
-            from openbot_cli.formatting import format_message
-
             msg = data if isinstance(data, dict) else {}
             click.echo(format_message(msg))
             click.echo("─" * 60)
@@ -248,15 +303,28 @@ def _watch(client: OpenBotClient, thread_id: str) -> None:
 @click.argument("message")
 @click.option("--bot", "bots", multiple=True, help="Bot handle to @-mention (repeatable).")
 @click.option("--from", "sender", default=None, help="Sender handle (default: you/human).")
+@click.option("--wait", is_flag=True, help="Wait until the addressed bots have answered and the thread is quiet.")
+@click.option("--timeout", default=1800, show_default=True, type=click.IntRange(min=0),
+              help="Seconds to wait with --wait; 0 waits forever.")
+@click.option("--poll", default=2.0, show_default=True, type=click.FloatRange(min=0.1), hidden=True)
 @click.option("--json", "as_json", is_flag=True, help="Emit raw JSON.")
 @click.pass_context
 def send(ctx: click.Context, thread_id: str, message: str, bots: tuple[str, ...],
-         sender: str | None, as_json: bool) -> None:
-    """Send MESSAGE to THREAD_ID. Use --bot @handle to address a bot."""
+         sender: str | None, wait: bool, timeout: int, poll: float, as_json: bool) -> None:
+    """Send MESSAGE to THREAD_ID. Use --bot @handle to address a bot.
+
+    \b
+    With --wait, prints the bots' replies once their runs have finished. Exit codes:
+    0 completed, 1 a run failed or was cancelled, 3 a run waits for approval in the
+    web UI, 124 timed out. The runs keep going on the server in every case.
+    """
     client: OpenBotClient = ctx.obj["client"]
     thread_id = _resolve_thread_id(client, thread_id)
     to = [b.lstrip("@") for b in bots]
     result = client.send_message(thread_id, message, to=to, sender=sender)
+    if wait:
+        _send_and_wait(ctx, client, thread_id, result, timeout, poll, as_json)
+        return
     if as_json:
         click.echo(json.dumps(result, indent=2, default=str))
         return
@@ -266,6 +334,82 @@ def send(ctx: click.Context, thread_id: str, message: str, bots: tuple[str, ...]
         click.echo(f"Addressed: {', '.join('@' + a for a in result['addressed'])}")
     if result.get("unaddressed"):
         click.echo("(no bots were addressed — message may go unread)")
+
+
+def _ts(value: str) -> datetime:
+    dt = datetime.fromisoformat(value)
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def _wait_for_runs(client: OpenBotClient, thread_id: str, since: str, actor_ids: set[str],
+                   timeout: int, poll: float) -> tuple[str, list[dict]]:
+    """Poll the thread's runs created since the message until they are done.
+
+    Done means: every addressed bot has a run, none is open, and that held for two
+    polls in a row, so replies that address further bots are waited for as well.
+    """
+    start = _ts(since)
+    deadline = time.monotonic() + timeout if timeout else None
+    quiet = 0
+    while True:
+        runs = [r for r in client.list_runs(thread_id) if _ts(r["created_at"]) >= start]
+        runs.sort(key=lambda r: r["created_at"])
+        if any(r["status"] == "waiting_human" for r in runs):
+            return "waiting_human", runs
+        started = {r["actor_id"] for r in runs}
+        if actor_ids <= started and not any(r["status"] in OPEN_RUN_STATUSES for r in runs):
+            quiet += 1
+            if quiet >= 2:
+                failed = any(r["status"] in ("failed", "cancelled") for r in runs)
+                return ("failed" if failed else "completed"), runs
+        else:
+            quiet = 0
+        if deadline is not None and time.monotonic() >= deadline:
+            return "timeout", runs
+        time.sleep(poll)
+
+
+def _send_and_wait(ctx: click.Context, client: OpenBotClient, thread_id: str, result: dict,
+                   timeout: int, poll: float, as_json: bool) -> None:
+    msg = result["message"]
+    addressed = result.get("addressed") or []
+    if not as_json:
+        click.echo(f"Posted as {msg['sender_name']} at {msg.get('created_at')}", err=True)
+    if not addressed:
+        status, runs = "unaddressed", []
+    else:
+        ids = {a["id"] for a in client.list_actors() if a.get("handle") in addressed}
+        if not as_json:
+            click.echo("Waiting for " + ", ".join("@" + a for a in addressed) + " …", err=True)
+        try:
+            status, runs = _wait_for_runs(client, thread_id, msg["created_at"], ids, timeout, poll)
+        except KeyboardInterrupt:
+            click.echo("\nStopped waiting; the runs continue on the server.", err=True)
+            ctx.exit(130)
+    run_ids = {r["id"] for r in runs}
+    messages = client.get_thread(thread_id, limit=200).get("messages", []) if run_ids else []
+    replies = [m for m in messages if m.get("run_id") in run_ids]
+    if as_json:
+        click.echo(json.dumps({"status": status, "message": msg, "addressed": addressed,
+                               "runs": runs, "replies": replies}, indent=2, default=str))
+    else:
+        for m in replies:
+            click.echo(format_message(m, full=True))
+            click.echo("─" * 60)
+        for r in runs:
+            line = f"run {r['id'][:8]}  {r['status']}"
+            if r.get("error"):
+                line += f"  {r['error']}"
+            if r["status"] == "waiting_human" and r.get("interrupt"):
+                line += "  (approve or reject it in the web UI)"
+            click.echo(line, err=True)
+        if status == "unaddressed":
+            click.echo("(no bots were addressed — nothing to wait for)", err=True)
+        elif status == "timeout":
+            click.echo(f"Timed out after {timeout}s; the runs continue on the server.", err=True)
+    codes = {"failed": 1, "waiting_human": EXIT_WAITING_HUMAN, "timeout": EXIT_TIMEOUT}
+    if status in codes:
+        ctx.exit(codes[status])
 
 
 @cli.command("bots")
@@ -302,9 +446,9 @@ def runs(ctx: click.Context, thread_id: str | None, as_json: bool) -> None:
 @click.option("--json", "as_json", is_flag=True, help="Emit raw JSON.")
 @click.pass_context
 def run(ctx: click.Context, run_id: str, as_json: bool) -> None:
-    """Show one RUN_ID with its event log."""
+    """Show one RUN_ID (or a prefix of it, as `runs` shows) with its event log."""
     client: OpenBotClient = ctx.obj["client"]
-    detail = client.get_run(run_id)
+    detail = client.get_run(_resolve_run_id(client, run_id))
     if as_json:
         click.echo(json.dumps(detail, indent=2, default=str))
         return
@@ -360,19 +504,6 @@ def _fields(raw: tuple[str, ...], typed: tuple[str, ...]) -> dict:
     return out
 
 
-def _read_data(value: str):
-    if value == "@-":
-        text = sys.stdin.read()
-    elif value.startswith("@"):
-        text = Path(value[1:]).read_text()
-    else:
-        text = value
-    try:
-        return json.loads(text)
-    except ValueError as exc:
-        raise click.UsageError(f"--data is not valid JSON: {exc}") from exc
-
-
 @cli.command("api")
 @click.argument("path")
 @click.option("-X", "--method", default=None, help="HTTP method (default: GET, or POST with fields/data).")
@@ -410,7 +541,7 @@ def api(ctx: click.Context, path: str, method: str | None, raw_fields: tuple[str
     elif fields:
         kwargs["json"] = fields
     elif data is not None:
-        kwargs["json"] = _read_data(data)
+        kwargs["json"] = read_json_arg(data)
     resp = client.request_raw(method, _api_path(path), **kwargs)
     failed = resp.status_code >= 400
     if include:
