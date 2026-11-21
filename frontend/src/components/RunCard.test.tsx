@@ -118,3 +118,79 @@ describe("RunCard scratchpad", () => {
     container.remove();
   });
 });
+
+describe("RunCard tool views", () => {
+  beforeEach(() => { vi.mocked(Api.getBotScratchpad).mockResolvedValue({ content: "", updated_at: null }); });
+  const open = (container: HTMLElement) => {
+    act(() => (container.querySelector("button[aria-expanded]") as HTMLButtonElement).click());
+    container.querySelectorAll("details").forEach(d => { d.open = true; });
+  };
+  const summaries = (container: HTMLElement) => [...container.querySelectorAll("summary")].map(s => s.textContent?.trim());
+  async function until(condition: () => boolean) {
+    const deadline = Date.now() + 3000;
+    while (!condition()) {
+      if (Date.now() > deadline) throw new Error("timed out");
+      await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    }
+  }
+
+  it("reads shell calls of every agent as commands", () => {
+    const { container, cleanup } = render([
+      ev(1, "tool_call", { id: "p", name: "bash", args: { command: "ls -la" } }),
+      ev(2, "tool_result", { tool_call_id: "p", status: "success", content: "\x1b[32mtotal 0\x1b[0m" }),
+      ev(3, "tool_call", { id: "c", name: "Bash", args: { command: "git status\ngit diff", description: "check" } }),
+    ]);
+    open(container);
+    expect(summaries(container)).toEqual(["$ls -la", "$git status …"]);
+    expect(container.textContent).toContain("total 0");
+    expect(container.textContent).not.toContain("\x1b[");
+    cleanup();
+  });
+
+  it("names reads by path and range, without the line-number prefixes", () => {
+    const { container, cleanup } = render([
+      ev(1, "tool_call", { id: "r", name: "Read", args: { file_path: "src/a.py", offset: 2, limit: 3 } }),
+      ev(2, "tool_result", { tool_call_id: "r", status: "success", content: "     2\tx = 1\n     3\ty = 2" }),
+    ]);
+    open(container);
+    expect(summaries(container)).toEqual(["$read src/a.py:2-4"]);
+    expect(container.textContent).toContain("x = 1\ny = 2");
+    cleanup();
+  });
+
+  it("shows unknown tools by name with their arguments", () => {
+    const { container, cleanup } = render([ev(1, "tool_call", { id: "m", name: "mcp__linear__save", args: { id: 7 } })]);
+    open(container);
+    expect(summaries(container)).toEqual(['$mcp__linear__save({"id":7})']);
+    expect(container.textContent).toContain('"id": 7');
+    cleanup();
+  });
+
+  it("shows an edit with its patch as a numbered diff and counts the lines", async () => {
+    const patch = "--- a.py\n+++ a.py\n@@ -1,2 +1,2 @@\n x = 1\n-y = 2\n+y = 3\n";
+    const { container, cleanup } = render([
+      ev(1, "tool_call", { id: "e", name: "edit", args: { path: "a.py", edits: [{ oldText: "y = 2", newText: "y = 3" }] } }),
+      ev(2, "tool_result", { tool_call_id: "e", status: "success", content: "Successfully replaced 1 block(s)", patch }),
+    ]);
+    open(container);
+    expect(summaries(container)).toEqual(["$edit a.py +1 −1"]);
+    await until(() => !!container.querySelector('[data-testid="edit-diff"]'));
+    const diff = container.querySelector('[data-testid="edit-diff"]')!;
+    expect(diff.textContent).toContain("@@ -1,2 +1,2 @@");
+    expect(diff.querySelectorAll(".bg-danger\\/10, .bg-ok\\/10")).toHaveLength(2);
+    cleanup();
+  });
+
+  it("falls back to the fragments without a patch, and shows errors first", async () => {
+    const { container, cleanup } = render([
+      ev(1, "tool_call", { id: "e", name: "edit_file", args: { path: "a.py", old_string: "y = 2", new_string: "y = 3" } }),
+      ev(2, "tool_result", { tool_call_id: "e", status: "error", content: "error: old_string not found" }),
+    ]);
+    open(container);
+    await until(() => !!container.querySelector('[data-testid="edit-diff"]'));
+    expect(container.textContent).toContain("no line numbers");
+    const body = container.querySelector("details > div")!;
+    expect(body.firstElementChild?.textContent).toBe("error: old_string not found");
+    cleanup();
+  });
+});

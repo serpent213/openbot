@@ -5,6 +5,7 @@ import { usageLabel } from "../lib/usageLabel";
 import type { Run, RunEvent } from "../api/types";
 import { Badge, Button, Dialog, ErrorText, IconButton, type BadgeTone } from "./ui";
 import { ChevronDownIcon, ChevronRightIcon, ExternalIcon, NotepadIcon } from "./icons";
+import ToolCall from "./runlog/ToolCall";
 
 const ACTIVE = ["queued", "running", "waiting_human"];
 
@@ -12,7 +13,7 @@ const tone = (s: string): BadgeTone => (s === "completed" ? "green" : s === "fai
 
 /**
  * The run log under a bot's message: what it said while working and every tool it called, as a
- * transcript. Tool calls read like shell lines — `$ name(args)` with the result folded beneath.
+ * transcript. Tool calls read like shell lines, with the result folded beneath (runlog/ToolCall).
  */
 export default function RunCard({ run, events, streaming, botName }: { run: Run; events: RunEvent[]; streaming?: string; botName?: string | null }) {
   // Always collapsed by default regardless of run status; the user clicks to expand.
@@ -52,21 +53,7 @@ export default function RunCard({ run, events, streaming, botName }: { run: Run;
         body.push(<pre key={e.id} className="whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed text-fg">{content}</pre>);
       }
     } else if (e.type === "tool_call") {
-      const r = results.get(e.payload.id);
-      const callId = e.payload.id ?? e.id;
-      body.push(
-        <details key={callId} className="group/call rounded-ui">
-          <summary className="flex cursor-pointer list-none items-start gap-2 rounded-ui px-1.5 py-1 leading-relaxed hover:bg-sunken [&::-webkit-details-marker]:hidden">
-            <span className="select-none text-accent" aria-hidden>$</span>
-            <span className="min-w-0 flex-1 break-words">
-              <span className="font-medium text-fg">{e.payload.name}</span>
-              <span className="whitespace-pre-wrap text-muted">({JSON.stringify(e.payload.args)})</span>
-            </span>
-            <span className={`mt-0.5 h-1.5 w-1.5 shrink-0 self-center rounded-full ${!r ? "animate-pulse bg-warn" : r.payload.status === "error" ? "bg-danger" : "bg-ok"}`} title={!r ? "running" : r.payload.status === "error" ? "failed" : "returned"} aria-hidden />
-          </summary>
-          <pre className="ml-3.5 mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-ui border border-line bg-canvas p-2 text-[11px] leading-relaxed text-muted scrollbar-subtle">{r ? String(r.payload.content) : "…"}</pre>
-        </details>
-      );
+      body.push(<ToolCall key={e.payload.id ?? e.id} call={e} result={results.get(e.payload.id)} />);
     }
   }
   return (

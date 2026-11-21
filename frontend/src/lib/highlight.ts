@@ -12,7 +12,7 @@
  * Output is safe to insert as HTML: Shiki builds it from the code as text and escapes it, and the
  * language must be one of ours. */
 import { useEffect, useSyncExternalStore } from "react";
-import type { HighlighterCore, LanguageRegistration } from "shiki/core";
+import type { HighlighterCore, LanguageRegistration, ThemedToken } from "shiki/core";
 
 type Grammar = () => Promise<{ default: LanguageRegistration[] }>;
 const LANGS: Record<string, Grammar> = {
@@ -115,6 +115,20 @@ export function highlight(code: string, lang: string | null | undefined): string
   const id = resolveLang(lang);
   if (!core || !id || !loaded.has(id)) return null;
   return core.codeToHtml(code, { lang: id, themes: { light: "github-light", dark: "github-dark" }, defaultColor: false });
+}
+
+/** Tokens per line, each with `htmlStyle` holding both theme colours; null like `highlight`. */
+export function tokenize(code: string, lang: string | null | undefined): ThemedToken[][] | null {
+  const id = resolveLang(lang);
+  if (!core || !id || !loaded.has(id)) return null;
+  return core.codeToTokens(code, { lang: id, themes: { light: "github-light", dark: "github-dark" }, defaultColor: false }).tokens;
+}
+
+/** Highlighted spans for one line of code, without the block around them, for inline use. */
+export function highlightInline(code: string, lang: string | null | undefined): string | null {
+  const html = highlight(code, lang);
+  const inner = html?.match(/<code>([\s\S]*)<\/code>/)?.[1];
+  return inner === undefined ? null : inner;
 }
 
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
