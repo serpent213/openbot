@@ -18,6 +18,7 @@ from openbot.runtime.cli_agents.base import (
     TurnResult,
     UnknownSession,
 )
+from openbot.runtime.cli_agents.patch import claude_patch
 
 # A permission mode alone does not make a level true to its name: `dontAsk` only denies what would prompt,
 # so an allow rule in the user's own Claude settings (Edit, Bash(*)) still applies, and `acceptEdits` runs
@@ -133,12 +134,20 @@ class ClaudeStream(StreamParser):
                     out.append(("tool_call", {"id": call_id, "name": name, "args": block.get("input") or {}}))
         elif kind == "user":
             content = (event.get("message") or {}).get("content")
-            for block in content if isinstance(content, list) else []:
-                if isinstance(block, dict) and block.get("type") == "tool_result":
-                    call_id = str(block.get("tool_use_id", ""))
-                    out.append(("tool_result", {"tool_call_id": call_id, "name": self._tool_names.get(call_id, "tool"),
-                                                "status": "error" if block.get("is_error") else "success",
-                                                "content": _tool_result_text(block.get("content"))}))
+            blocks = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_result"] \
+                if isinstance(content, list) else []
+            for block in blocks:
+                call_id = str(block.get("tool_use_id", ""))
+                name = self._tool_names.get(call_id, "tool")
+                payload = {"tool_call_id": call_id, "name": name,
+                           "status": "error" if block.get("is_error") else "success",
+                           "content": _tool_result_text(block.get("content"))}
+                # tool_use_result is the tool's whole output and belongs to the event, so it is only
+                # attributable when the event carries a single result.
+                patch = claude_patch(name, event.get("tool_use_result")) if len(blocks) == 1 else None
+                if patch:
+                    payload["patch"] = patch
+                out.append(("tool_result", payload))
         elif kind == "result":
             self.result = event
         return out

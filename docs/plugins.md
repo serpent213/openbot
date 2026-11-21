@@ -327,6 +327,12 @@ usage recording and final replies. Explicit executable paths use
 Adapters provide `access_hints` so the bot editor describes their actual permission
 semantics. Claude's restricted file tools and Codex's command sandbox differ.
 
+A parser's `tool_result` payload may carry `patch`, unified-diff text for a file edit
+(`--- path`, `+++ path`, `@@` hunks with real line numbers); the run log shows it as a
+diff. The core drops a patch longer than 64,000 characters and sets
+`patch_truncated: true` instead, so never cut one yourself. Claude Code's comes from its
+`tool_use_result` (`cli_agents/patch.py`).
+
 Coding bots retain normal Openbot identities and participate through `@mentions`.
 Internal bots can update boards/ledgers and delegate implementation to them; coding
 bots can mention the coordinator in their final reply. A final reply that mentions

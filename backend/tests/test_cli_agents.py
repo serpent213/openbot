@@ -507,6 +507,27 @@ async def test_lines_far_past_the_default_stream_limit_are_read_whole(settings, 
     assert (await thread_messages(services, t.id))[-1].content == "Die Datei ist gro\u00df."
 
 
+
+async def test_edit_patches_are_stored_and_oversized_ones_dropped(settings, fake):
+    home, exe = fake
+    settings.claude_code_path = str(exe)
+
+    def edit(call_id, lines):
+        return [json.dumps({"type": "assistant", "session_id": SESSION, "parent_tool_use_id": None,
+                            "message": {"content": [{"type": "tool_use", "id": call_id, "name": "Edit",
+                                                     "input": {"file_path": "a.py"}}]}}),
+                json.dumps({"type": "user", "session_id": SESSION, "parent_tool_use_id": None,
+                            "tool_use_result": {"filePath": "a.py", "structuredPatch": [
+                                {"oldStart": 1, "oldLines": 1, "newStart": 1, "newLines": 1, "lines": lines}]},
+                            "message": {"content": [{"type": "tool_result", "tool_use_id": call_id, "content": "ok"}]}})]
+    script(home, {"lines": [init_line(), *edit("small", ["-a", "+b"]), *edit("big", ["+" + "x" * 70_000]),
+                            result_line("done")]})
+    services, _eng, _t, run = await make(settings)
+    await services.runner.execute(run.id)
+    small, big = [e.payload for e in await events(services, run.id) if e.type == "tool_result"]
+    assert small["patch"] == "--- a.py\n+++ a.py\n@@ -1,1 +1,1 @@\n-a\n+b\n" and "patch_truncated" not in small
+    assert "patch" not in big and big["patch_truncated"] is True
+
 async def test_follow_up_resumes_the_session_with_only_new_messages(settings, fake):
     home, exe = fake
     settings.claude_code_path = str(exe)

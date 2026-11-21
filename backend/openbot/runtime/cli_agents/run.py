@@ -54,6 +54,7 @@ async def execute_cli_turn(runner, adapter: CliAdapter, bot, thread, run, seq: i
                            workspace_root, hop: int, progress, started: float) -> None:
     """Like the rest of Runner.execute, for a bot whose provider is a CLI. `progress` is filled as the
     stream arrives, so a cancelled run keeps what the CLI had written."""
+    from openbot.runtime.cli_agents.patch import PATCH_CAP
     from openbot.runtime.runner import TOOL_RESULT_CAP
 
     s = runner.s
@@ -99,7 +100,13 @@ async def execute_cli_turn(runner, adapter: CliAdapter, bot, thread, run, seq: i
         elif kind == "tool_result":
             content = payload["content"]
             log.info("run %s tool_result %s status=%s len=%d", run.id, payload["name"], payload["status"], len(content))
-            seq = await runner._record(run, seq, "tool_result", {**payload, "content": content[:TOOL_RESULT_CAP]})
+            stored = {**payload, "content": content[:TOOL_RESULT_CAP]}
+            patch = stored.get("patch")
+            if patch is not None and (not isinstance(patch, str) or len(patch) > PATCH_CAP):
+                # Dropped whole: a patch cut mid-hunk renders worse than the fragment fallback.
+                del stored["patch"]
+                stored["patch_truncated"] = True
+            seq = await runner._record(run, seq, "tool_result", stored)
             await activity.record(s, "run.tool_result", level="warning" if payload["status"] == "error" else "debug",
                                   thread_id=run.thread_id, actor_id=run.actor_id, run_id=run.id,
                                   summary=f"{payload['name']} -> {payload['status']} ({len(content)} chars)",

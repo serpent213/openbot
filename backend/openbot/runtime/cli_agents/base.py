@@ -97,7 +97,8 @@ class TurnResult:
 class StreamParser(ABC):
     """Turns one CLI's events into run-level actions: ("session", id), ("init", {...}), ("delta", text),
     ("text", text), ("tool_call", {id, name, args}) and ("tool_result", {tool_call_id, name, status,
-    content}). Pure, so tests feed it recorded lines."""
+    content, patch?}). `patch` is optional unified-diff text for a file edit (see cli_agents/patch.py).
+    Pure, so tests feed it recorded lines."""
 
     session_id: str | None = None
 
