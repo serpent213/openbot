@@ -1,6 +1,9 @@
 # Plan: syntax highlighting, edit diffs and a richer run log in the web UI
 
-Status: ready to implement. Written 2026-11-13 against the fork at `2a81cec`
+Status (2026-11-21): WP1-WP6 done (openbot 2faeb62..24133fb, openbot-pi 378bca0). WP6 was
+built without Pierre, see the decision table. WP7-WP9 open.
+
+Written 2026-11-13 against the fork at `2a81cec`
 (`git.teralink.net/self/openbot`), the plugin `openbot-pi` at `cfd6eb4`, and Pi 1.5.0 as
 deployed on the `openbot` host.
 
@@ -22,7 +25,7 @@ accept/reject buttons, and thread renaming (a separate small task).
 | Topic | Decision | Why |
 |---|---|---|
 | Highlighter | **Shiki** (`shiki@^4`, `shiki/core` + JS regex engine, no WASM) | VS Code grammar quality, two themes in one render, the same engine `@pierre/diffs` uses, so its chunks are downloaded once. |
-| Edit diffs | **`@pierre/diffs`** (`@pierre/diffs/react`, `PatchDiff` / `MultiFileDiff`), **only behind our own lazy `EditDiff` wrapper** | Polished unified diff with word-level highlighting for free. The wrapper keeps Pierre's large, fast-moving API (1.0 in Dec 2025, 115 releases since) out of the rest of the code, so it can be swapped for our own renderer without other changes. |
+| Edit diffs | **Our own `EditDiff`** on `diff` (jsdiff, BSD, no dependencies) + the shared Shiki highlighter. Revised 2026-11-21; originally `@pierre/diffs`. | Pierre's strengths (split view, hunk expansion, annotations) are out of scope; its Shadow DOM keeps our tokens out, it pulls in ~10 packages and makes the build emit every Shiki language (~12 MB), and it still changes fast (1.7 in beta). Ours is ~250 lines, uses the app's CSS, and its chunk is 6.9 KB gz. |
 | Message code blocks | Shiki directly, not Pierre's `File` component | `File` is meant for whole files (Shadow DOM, header, line numbers per block); it does not fit inline snippets. |
 | Where diffs come from | The CLIs' own patches, sent through as a new `patch` field on `tool_result` | Pi and Claude already compute exact patches with line numbers and context. Diffing the fragments ourselves is only a fallback. |
 
