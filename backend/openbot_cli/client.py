@@ -28,7 +28,7 @@ EVENT_BOTS_UPDATED = "bots.updated"
 
 
 class OpenBotClientError(RuntimeError):
-    """Raised when the server returns a non-2xx status."""
+    """Raised when the server is unreachable or returns a non-2xx status."""
 
 
 class OpenBotClient:
@@ -57,7 +57,10 @@ class OpenBotClient:
     # -- low level ---------------------------------------------------------
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        resp = self._client.request(method, path, **kwargs)
+        try:
+            resp = self._client.request(method, path, **kwargs)
+        except httpx.TransportError as exc:
+            raise OpenBotClientError(f"cannot reach {self.base_url}: {exc}") from exc
         if resp.status_code >= 400:
             raise OpenBotClientError(
                 f"{method} {path} -> {resp.status_code}: {resp.text[:300]}"

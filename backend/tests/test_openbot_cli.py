@@ -197,6 +197,15 @@ def test_client_error_on_4xx():
         c.list_threads()
 
 
+def test_client_error_when_unreachable():
+    def handler(req):
+        raise httpx.ConnectError("[Errno 61] Connection refused", request=req)
+
+    c = _client(handler)
+    with pytest.raises(OpenBotClientError, match="cannot reach http://localhost"):
+        c.list_runs()
+
+
 # ---------------------------------------------------------------------------
 # CLI integration tests (CliRunner with injected client)
 # ---------------------------------------------------------------------------
@@ -277,6 +286,16 @@ def test_cli_bots_and_runs():
     r2 = _runner_with_client(c)(["runs"])
     assert r1.exit_code == 0 and "eng" in r1.output
     assert r2.exit_code == 0 and "r1" in r2.output
+
+
+def test_cli_reports_unreachable_server_without_traceback():
+    def handler(req):
+        raise httpx.ConnectError("[Errno 61] Connection refused", request=req)
+
+    result = _runner_with_client(_client(handler))(["runs"])
+    assert result.exit_code == 1
+    assert "cannot reach http://localhost" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_cli_connect_saves_and_pings(tmp_path, monkeypatch):

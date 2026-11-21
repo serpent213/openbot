@@ -23,6 +23,7 @@ from pathlib import Path
 from uuid import UUID
 
 import click
+import httpx
 
 from openbot_cli.client import GitHubIssuesClient, OpenBotClient, OpenBotClientError
 from openbot_cli.config import (
@@ -52,6 +53,9 @@ class _ClientErrorGroup(click.Group):
             return super().invoke(ctx)
         except OpenBotClientError as exc:
             raise click.ClickException(str(exc)) from exc
+        except httpx.TransportError as exc:
+            # Streams and GitHub calls bypass OpenBotClient._request.
+            raise click.ClickException(f"network error: {exc}") from exc
 
 
 def _resolve_thread_id(client: OpenBotClient, value: str) -> str:
