@@ -10,6 +10,8 @@ Commands mirror the core web-UI flows against a running OpenBot server:
     openbot runs [<thread>]                List runs (optionally for one thread)
     openbot run <id>                       Show one run and its event log
     openbot api [-X METHOD] <path> [-F k=v] Send any request to the server API
+    openbot plugins                        List active plugins
+    openbot <plugin> <command> ...         Commands generated from a plugin's API
 
 This is a frontend only — every command calls the existing ``/api/v1`` REST and
 SSE endpoints. See README.md in this package for a full usage guide.
@@ -18,6 +20,7 @@ SSE endpoints. See README.md in this package for a full usage guide.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from uuid import UUID
@@ -41,13 +44,41 @@ from openbot_cli.formatting import (
     format_thread_detail,
     format_threads,
 )
+from openbot_cli.plugins import build_group, load_schema
 
 
 def _make_client(base_url: str, api_key: str | None, actor: str | None = None) -> OpenBotClient:
     return OpenBotClient(base_url=base_url, api_key=api_key, actor=actor)
 
 
+def _ensure_client(ctx: click.Context) -> OpenBotClient:
+    """The root context's client, built from flags, env and config on first use.
+
+    Plugin commands are looked up before the root callback runs, so this can be
+    called early, when --help has cut option parsing short; hence the env fallback.
+    """
+    root = ctx.find_root()
+    obj = root.ensure_object(dict)
+    # An injected client (tests, embedding, DI) is used as-is.
+    if "client" not in obj:
+        params = root.params
+        try:
+            url, key = resolve(params.get("base_url") or os.environ.get("OPENBOT_URL"),
+                               params.get("api_key") or os.environ.get("OPENBOT_API_KEY"))
+            actor = resolve_actor(params.get("actor") or os.environ.get("OPENBOT_ACTOR"))
+        except ConfigError as e:
+            raise click.ClickException(str(e)) from e
+        obj.update(base_url=url, api_key=key, client=_make_client(url, key, actor))
+    return obj["client"]
+
+
+def _current_client() -> OpenBotClient:
+    return _ensure_client(click.get_current_context())
+
+
 class _ClientErrorGroup(click.Group):
+    """Maps client errors to one-line messages and adds one group per plugin."""
+
     def invoke(self, ctx: click.Context):
         try:
             return super().invoke(ctx)
@@ -56,6 +87,38 @@ class _ClientErrorGroup(click.Group):
         except httpx.TransportError as exc:
             # Event streams bypass OpenBotClient._request.
             raise click.ClickException(f"network error: {exc}") from exc
+
+    def _plugin_groups(self, ctx: click.Context) -> dict[str, click.Group]:
+        if "plugin_groups" not in ctx.meta:
+            groups: dict[str, click.Group] = {}
+            try:
+                schema = load_schema(_ensure_client(ctx))
+            except (OpenBotClientError, click.ClickException) as exc:
+                ctx.meta["plugin_error"] = str(exc)
+            else:
+                builtin = set(super().list_commands(ctx))
+                for plugin in schema.get("plugins", []):
+                    if plugin.get("id") in builtin:
+                        continue
+                    group = build_group(plugin, schema.get("openapi", {}), _current_client)
+                    if group is not None:
+                        groups[plugin["id"]] = group
+            ctx.meta["plugin_groups"] = groups
+        return ctx.meta["plugin_groups"]
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        return sorted({*super().list_commands(ctx), *self._plugin_groups(ctx)})
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        cmd = super().get_command(ctx, cmd_name)
+        if cmd is not None:
+            return cmd
+        cmd = self._plugin_groups(ctx).get(cmd_name)
+        if cmd is None and "plugin_error" in ctx.meta:
+            raise click.UsageError(
+                f"No such command {cmd_name!r} (plugin commands unavailable: {ctx.meta['plugin_error']})"
+            )
+        return cmd
 
 
 def _resolve_thread_id(client: OpenBotClient, value: str) -> str:
@@ -87,19 +150,7 @@ def _resolve_thread_id(client: OpenBotClient, value: str) -> str:
 @click.pass_context
 def cli(ctx: click.Context, base_url: str | None, api_key: str | None, actor: str | None) -> None:
     """OpenBot terminal client — talk to your bots and threads from the shell."""
-    ctx.ensure_object(dict)
-    # If a client was injected (tests, embedding, DI), use it as-is and skip the
-    # config-resolve + client-build path so the injected one is not clobbered.
-    if "client" in ctx.obj:
-        return
-    try:
-        url, key = resolve(base_url, api_key)
-        actor = resolve_actor(actor)
-    except ConfigError as e:
-        raise click.ClickException(str(e)) from e
-    ctx.obj["base_url"] = url
-    ctx.obj["api_key"] = key
-    ctx.obj["client"] = _make_client(url, key, actor)
+    _ensure_client(ctx)
 
 
 @cli.command("connect")
@@ -258,6 +309,28 @@ def run(ctx: click.Context, run_id: str, as_json: bool) -> None:
         click.echo(json.dumps(detail, indent=2, default=str))
         return
     click.echo(format_run_detail(detail))
+
+
+@cli.command("plugins")
+@click.option("--refresh", is_flag=True, help="Reload the plugin list and API schema now.")
+@click.option("--json", "as_json", is_flag=True, help="Emit raw JSON.")
+@click.pass_context
+def plugins(ctx: click.Context, refresh: bool, as_json: bool) -> None:
+    """List the server's active plugins and their generated commands."""
+    schema = load_schema(ctx.obj["client"], refresh=refresh)
+    data = schema.get("plugins", [])
+    if as_json:
+        click.echo(json.dumps(data, indent=2, default=str))
+        return
+    if not data:
+        click.echo("No plugins.")
+        return
+    builtin = set(click.Group.list_commands(cli, ctx))
+    for plugin in data:
+        group = None if plugin["id"] in builtin else build_group(plugin, schema.get("openapi", {}), _current_client)
+        commands = ", ".join(group.commands) if group else "—"
+        click.echo(f"{plugin['id']:<12} {plugin.get('version') or '':<10} tools: {len(plugin.get('tools', []))}")
+        click.echo(f"{'':<12} commands: {commands}")
 
 
 def _api_path(path: str) -> str:

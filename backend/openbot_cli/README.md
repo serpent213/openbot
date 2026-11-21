@@ -39,6 +39,8 @@ The config is stored at `~/.config/openbot-cli/config.json`.
 | `openbot runs [<thread>]` | List runs; pass a `<thread>` id to scope to one thread. |
 | `openbot run <id>` | Show one run and its event log (useful for streaming deltas). |
 | `openbot api [-X METHOD] <path> [-f/-F key=value] [-d JSON\|@file\|@-]` | Send any request to the server API and print the JSON response. |
+| `openbot plugins [--refresh]` | List active plugins and their generated commands. |
+| `openbot <plugin> <command> ...` | Commands generated from a plugin's HTTP API, e.g. `openbot kanban list-cards <board>`. |
 
 Every command except `api` accepts `--json` to emit the raw API payload; `api`
 always prints the response as it comes.
@@ -91,6 +93,32 @@ echo '{"name": "Ops"}' | openbot api /kanban/boards -d @-
 JSON). Fields form the JSON body and make the default method POST; with
 `-X GET` they become query parameters. `-H 'Name: value'` adds a header and
 `-i` prints the status line. Error responses go to stderr with exit code 1.
+
+## Plugin commands
+
+Plugins that register HTTP routes get a command group of the same name, built
+from the server's `/openapi.json` and `/api/v1/plugins`. Each route becomes a
+command named after its route function: path parameters are arguments, query
+parameters and JSON body fields are options (`--help` lists them). Lists print
+as tables, single objects as fields, and `--json` gives the raw response.
+
+```bash
+openbot kanban list-boards
+openbot kanban list-cards <board-id>
+openbot kanban create-card <board-id> --title "Fix the thing"
+openbot kanban update-card <card-id> --status review --result "Done in abc123"
+```
+
+For a nullable field, the value `null` sends JSON null (`--assignee-handle null`
+unassigns). The schema is cached for five minutes in
+`~/.cache/openbot-cli/`; `openbot plugins --refresh` reloads it after a deploy.
+
+A plugin can refine its commands with an `x-cli` object on a route
+(`openapi_extra={"x-cli": {...}}` in FastAPI): `name` renames the command,
+`columns` picks the table columns, `fill` reads body fields from a GET of the
+same path when they are not given (kanban's
+`{"expected_version": "version"}`), and `hidden: true` leaves a route out,
+for example an inbound webhook. See `openbot_cli/plugins.py`.
 
 ## Authentication
 

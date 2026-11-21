@@ -511,3 +511,171 @@ def test_cli_full_thread_uuid_skips_listing_and_reports_api_error():
     assert "Error:" in result.output and "thread not found" in result.output
     assert isinstance(result.exception, SystemExit)
     assert len(seen) == 1 and seen[0].url.path == f"/api/v1/threads/{tid}"
+
+
+# ---------------------------------------------------------------------------
+# Plugin commands generated from /openapi.json
+# ---------------------------------------------------------------------------
+
+_CARD_PATH = "/api/v1/kanban/boards/cards/{card_id}"
+_SPEC = {
+    "paths": {
+        "/api/v1/kanban/boards": {
+            "get": {"operationId": "list_boards_api_v1_kanban_boards_get", "summary": "List Boards",
+                    "responses": {"200": {"content": {"application/json": {"schema": {
+                        "type": "array", "items": {"$ref": "#/components/schemas/BoardOut"}}}}}}},
+        },
+        "/api/v1/kanban/boards/{board_id}/cards": {
+            "get": {"operationId": "list_cards_api_v1_kanban_boards__board_id__cards_get", "summary": "List Cards",
+                    "parameters": [{"name": "board_id", "in": "path", "required": True,
+                                    "schema": {"type": "string", "title": "Board Id"}}],
+                    "x-cli": {"columns": ["id", "status", "title"]},
+                    "responses": {"200": {"content": {"application/json": {"schema": {"type": "array"}}}}}},
+        },
+        _CARD_PATH: {
+            "patch": {
+                "operationId": "update_card_api_v1_kanban_boards_cards__card_id__patch", "summary": "Update Card",
+                "parameters": [
+                    {"name": "card_id", "in": "path", "required": True, "schema": {"type": "string"}},
+                    {"name": "X-OpenBot-Actor", "in": "header", "required": False, "schema": {"type": "string"}},
+                ],
+                "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/CardUpdate"}}}},
+                "x-cli": {"fill": {"expected_version": "version"}},
+                "responses": {"200": {"content": {"application/json": {"schema": {}}}}},
+            },
+            "get": {"operationId": "get_card_api_v1_kanban_boards_cards__card_id__get", "summary": "Get Card",
+                    "parameters": [{"name": "card_id", "in": "path", "required": True, "schema": {"type": "string"}}],
+                    "responses": {"200": {}}},
+        },
+        "/api/v1/telegram/webhook": {"post": {"operationId": "webhook", "x-cli": {"hidden": True}}},
+        "/api/v1/threads": {"get": {"operationId": "list_threads_api_v1_threads_get"}},
+    },
+    "components": {"schemas": {
+        "BoardOut": {"type": "object", "properties": {
+            "name": {"type": "string"}, "description": {"type": "string"}, "id": {"type": "string"},
+            "updated_at": {"type": "string"}}},
+        "CardUpdate": {"type": "object", "required": ["expected_version"], "properties": {
+            "expected_version": {"type": "integer", "title": "Expected Version"},
+            "status": {"type": "string", "enum": ["backlog", "ready", "doing", "review", "done", "blocked"]},
+            "assignee_handle": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Assignee Handle"},
+            "result": {"type": "string", "description": "What was done."}}},
+    }},
+}
+_PLUGINS = [{"id": "kanban", "version": "0.1.0", "tools": ["board_list"]},
+            {"id": "telegram", "version": "0.1.0", "tools": []}]
+
+
+@pytest.fixture
+def plugin_server(tmp_path, monkeypatch):
+    from openbot_cli import plugins as plugins_mod
+
+    monkeypatch.setattr(plugins_mod, "CACHE_DIR", tmp_path / "cache")
+    calls = []
+    card = {"id": "c1", "status": "doing", "title": "T", "version": 4, "assignee_handle": "pi"}
+
+    def handler(req):
+        body = json.loads(req.content) if req.content else None
+        calls.append((req.method, req.url.path, body, req.headers.get("X-OpenBot-Actor")))
+        path = req.url.path
+        if path == "/openapi.json":
+            return _json_response(_SPEC)
+        if path == "/api/v1/plugins":
+            return _json_response(_PLUGINS)
+        if path == "/api/v1/kanban/boards":
+            return _json_response([{"name": "Dev", "description": "x" * 100, "id": "b1",
+                                    "updated_at": "2026-11-09T01:43:52Z"}])
+        if path == "/api/v1/kanban/boards/b1/cards":
+            return _json_response([card, {**card, "id": "c2", "title": "U"}])
+        if path == "/api/v1/kanban/boards/cards/c1" and req.method == "GET":
+            return _json_response(card)
+        if path == "/api/v1/kanban/boards/cards/c1" and req.method == "PATCH":
+            if body.get("status") == "review" and "result" not in body:
+                return _json_response({"detail": [{"loc": ["body", "result"], "msg": "review requires a result"}]},
+                                      status=422)
+            return _json_response({**card, **body, "version": 5})
+        return _json_response({"detail": "nope"}, status=404)
+
+    c = _client(handler)
+    c.actor = "you"
+    return _runner_with_client(c), calls
+
+
+def test_plugin_commands_are_listed_and_grouped(plugin_server):
+    invoke, _ = plugin_server
+    top = invoke(["--help"])
+    assert top.exit_code == 0, top.output
+    assert "kanban" in top.output
+    assert "telegram" not in top.output  # its only route is hidden
+    group = invoke(["kanban", "--help"])
+    assert group.exit_code == 0, group.output
+    for name in ("list-boards", "list-cards", "update-card", "get-card"):
+        assert name in group.output
+    assert "threads" not in group.output  # core routes stay out of plugin groups
+
+
+def test_plugin_list_renders_table_without_long_fields(plugin_server):
+    invoke, _ = plugin_server
+    result = invoke(["kanban", "list-boards"])
+    assert result.exit_code == 0, result.output
+    header = result.output.splitlines()[0].split()
+    assert header == ["id", "name", "updated_at"]  # description is too long for a table
+    cards = invoke(["kanban", "list-cards", "b1"])
+    assert cards.output.splitlines()[0].split() == ["id", "status", "title"]  # x-cli columns
+
+
+def test_plugin_update_fills_version_and_sends_body(plugin_server):
+    invoke, calls = plugin_server
+    result = invoke(["kanban", "update-card", "c1", "--status", "done", "--assignee-handle", "null"])
+    assert result.exit_code == 0, result.output
+    method, path, body, actor = calls[-1]
+    assert (method, path, actor) == ("PATCH", "/api/v1/kanban/boards/cards/c1", "you")
+    assert body == {"status": "done", "assignee_handle": None, "expected_version": 4}
+    assert calls[-2][:2] == ("GET", "/api/v1/kanban/boards/cards/c1")
+    assert "version" in result.output and "5" in result.output
+
+
+def test_plugin_update_with_version_skips_lookup(plugin_server):
+    invoke, calls = plugin_server
+    result = invoke(["kanban", "update-card", "c1", "--expected-version", "4", "--status", "doing"])
+    assert result.exit_code == 0, result.output
+    assert [c[0] for c in calls if c[1].startswith("/api/v1/kanban/boards/cards")] == ["PATCH"]
+
+
+def test_plugin_validation_error_is_one_line(plugin_server):
+    invoke, _ = plugin_server
+    result = invoke(["kanban", "update-card", "c1", "--status", "review"])
+    assert result.exit_code == 1
+    assert "422: result: review requires a result" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_plugin_schema_is_cached(plugin_server):
+    invoke, calls = plugin_server
+    invoke(["kanban", "list-boards"])
+    invoke(["kanban", "list-boards"])
+    assert sum(1 for c in calls if c[1] == "/openapi.json") == 1
+
+
+def test_plugins_command_lists_generated_commands(plugin_server):
+    invoke, _ = plugin_server
+    result = invoke(["plugins"])
+    assert result.exit_code == 0, result.output
+    assert "kanban" in result.output and "update-card" in result.output
+
+
+def test_builtin_commands_work_without_plugin_schema(tmp_path, monkeypatch):
+    from openbot_cli import plugins as plugins_mod
+
+    monkeypatch.setattr(plugins_mod, "CACHE_DIR", tmp_path / "cache")
+
+    def handler(req):
+        if req.url.path == "/api/v1/bots":
+            return _json_response([])
+        raise httpx.ConnectError("refused", request=req)
+
+    invoke = _runner_with_client(_client(handler))
+    assert invoke(["bots"]).exit_code == 0
+    assert invoke(["--help"]).exit_code == 0
+    unknown = invoke(["kanban", "list-boards"])
+    assert unknown.exit_code == 2
+    assert "plugin commands unavailable" in unknown.output

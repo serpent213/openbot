@@ -127,7 +127,8 @@ async def background(host):
 public = APIRouter(prefix="/telegram")
 
 
-@public.post("/webhook")
+# Called by Telegram, not by people: no generated terminal command.
+@public.post("/webhook", openapi_extra={"x-cli": {"hidden": True}})
 async def webhook(request: Request):
     host = host_from_request(request, "telegram")
     settings = await host.settings.global_settings()
